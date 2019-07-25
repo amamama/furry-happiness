@@ -1,74 +1,26 @@
-/*
-cell_p prim_if(cell_p root, cell_p env) {
-	return eval(arg(1), env)?eval(arg(2), env):eval(arg(3), env);
-}
-
-cell_p prim_quote(cell_p root, cell_p env) {
-	return cdr(root);
-}
-
-cell_p prim_lambda(cell_p root, cell_p env) {
-	return alloc_cell(root, env, FUNC);
-}
-
-cell_p prim_atom(cell_p root, cell_p env) {
-	return is(ATOM, eval(arg(1), env))?alloc_cell(NULL, NULL, LIST):NULL;
-}
-
-cell_p prim_eq(cell_p root, cell_p env) {
-	cell_p a = eval(arg(1), env);
-	cell_p b = eval(arg(2), env);
-	if(!is_same_atom(a, b)) { return NULL; }
-	return alloc_cell(NULL, NULL, LIST);
-}
-
-cell_p prim_cons(cell_p root, cell_p env) {
-	cell_p a = eval(arg(1), env);
-	cell_p b = eval(arg(2), env);
-	return alloc_cell(a, b, LIST);
-}
-
-cell_p prim_car(cell_p root, cell_p env) {
-	return car(eval(arg(1), env));
-}
-
-cell_p prim_cdr(cell_p root, cell_p env) {
-	return cdr(eval(arg(1), env));
-}
-
-cell_p prim_add(cell_p root, cell_p env) {
-	cell_p a = eval(arg(1), env);
-	cell_p b = eval(arg(2), env);
-	return alloc_cell((cell_p)((intptr_t)car(a) + (intptr_t)car(b)), NULL, NUMBER);
-}
-
-cell_p prim_sub(cell_p root, cell_p env) {
-	cell_p a = eval(arg(1), env);
-	cell_p b = eval(arg(2), env);
-	return alloc_cell((cell_p)((intptr_t)car(a) - (intptr_t)car(b)), NULL, NUMBER);
-}
-*/
 #ifdef INCLUDE_FILE
 begin(keyword, KEYWORD)
-keyword("'", Q)
-keyword("quote", QUOTE)
-keyword("if", IF)
-keyword("lambda", LAMBDA)
+keyword("'", q, 0, cdr(root))
+keyword("quote", quote, 0, cdr(root))
+keyword("if", if, 0, arg(1)?arg(2):arg(3))
+keyword("lambda", lambda, 0, alloc_cell(root, env, FUNC))
 end(keyword, KEYWORD)
 
 begin(predefined, PREDEFINED)
-predefined("atom", ATOM)
-predefined("eq", EQ)
-predefined("cons", CONS)
-predefined("car", CAR)
-predefined("cdr", CDR)
-predefined("_add", ADD)
-predefined("_sub", SUB)
-predefined("_mul", MUL)
-predefined("_div", DIV)
-predefined("_mod", MOD)
+predefined("atom", atom, 1, is(ATOM, a(1))?alloc_cell(NULL, NULL, LIST):NULL)
+predefined("eq", eq, 2, is_same_atom(a(1), a(2))?alloc_cell(NULL, NULL, LIST):NULL)
+predefined("cons", cons, 2, alloc_cell(a(1), a(2), LIST))
+predefined("car", car, 1, car(a(1)))
+predefined("cdr", cdr, 1, cdr(a(1)))
+predefined("_add", add, 2, alloc_cell(arith_biop(a(1), +, a(2)), NULL, NUMBER))
+predefined("_sub", sub, 2, alloc_cell(arith_biop(a(1), -, a(2)), NULL, NUMBER))
+predefined("_mul", mul, 2, alloc_cell(arith_biop(a(1), *, a(2)), NULL, NUMBER))
+predefined("_div", div, 2, alloc_cell(arith_biop(a(1), /, a(2)), NULL, NUMBER))
+predefined("_mod", mod, 2, alloc_cell(arith_biop(a(1), %, a(2)), NULL, NUMBER))
 end(predefined, PREDEFINED)
+
 #else
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -110,28 +62,32 @@ cell_p alloc_cell(cell_p car, cell_p cdr, type t) {
 char source[1024] = "";
 
 #define INCLUDE_FILE
+#define keyword(s, t, n, exp) to_constant(s, t)
+#define predefined(s, t, n, exp) to_constant(s, t)
 #define begin(k, K) enum {
 #define end(k, K) NUM_OF_##K };
-#define keyword(s, t) K_##t,
-#define predefined(s, t) P_##t,
+#define to_constant(s, t) K_##t,
 #include __FILE__
 #undef INCLUDE_FILE
-#undef begin
-#undef end
 #undef keyword
 #undef predefined
+#undef begin
+#undef end
+#undef to_constant
 
 #define INCLUDE_FILE
+#define keyword(s, t, n, exp) to_lit(s)
+#define predefined(s, t, n, exp) to_lit(s)
 #define begin(k, K) const char *k[] = {
 #define end(k, K) };
-#define keyword(s, t) s,
-#define predefined(s, t) s,
+#define to_lit(s) s,
 #include __FILE__
 #undef INCLUDE_FILE
-#undef begin
-#undef end
 #undef keyword
 #undef predefined
+#undef begin
+#undef end
+#undef to_lit
 
 typedef struct {
 	enum {
@@ -276,8 +232,8 @@ bool is_same_string(char const *str, cell_p root) {
 #define INCLUDE_FILE
 #define begin(k, K) bool in_##k(cell_p root) { for(size_t i = 0; i < NUM_OF_##K; i++) { if(is_same_string(k[i], root)) { return true; } } return false;
 #define end(k, K) }
-#define keyword(s, t)
-#define predefined(s, t)
+#define keyword(s, t, n, exp)
+#define predefined(s, t, n, exp)
 #include __FILE__
 #undef INCLUDE_FILE
 #undef begin
@@ -330,70 +286,58 @@ cell_p make_new_env(cell_p func, cell_p args, cell_p env) {
 	return new_env;
 }
 
-cell_p prim_if(cell_p root, cell_p env) {
-	return eval(car_cdnr(root, 1), env)?eval(car_cdnr(root, 2), env):eval(car_cdnr(root, 3), env);
-}
+#define INCLUDE_FILE
+#define A(n) A##n
+#define arg(n) eval(car_cdnr(root, n), env)
+#define decl_arg(n) cell_p a##n = arg(n)
+#define A0
+#define A1 A0; decl_arg(1)
+#define A2 A1; decl_arg(2)
+#define A3 A2; decl_arg(3)
+#define A4 A3; decl_arg(4)
+#define A5 A4; decl_arg(5)
+#define A6 A5; decl_arg(6)
+#define a(n) a##n
+#define def_func(t, n, exp) cell_p prim_##t(cell_p root, cell_p env) { A(n); return exp; }
+#define arith_biop(a,op, b) ((cell_p)(((intptr_t)car(a)) op ((intptr_t)car(b))))
 
-cell_p prim_quote(cell_p root, cell_p env) {
-	return cdr(root);
-}
+#define keyword(s, t, n, exp) def_func(t, n, exp)
+#define predefined(s, t, n, exp) def_func(t, n, exp)
+#define begin(k, K)
+#define end(k, K)
+#include __FILE__
+#undef INCLUDE_FILE
+#undef A
+#undef arg
+#undef decl_arg
+#define A0
+#undef A1
+#undef A2
+#undef A3
+#undef A4
+#undef A5
+#undef A6
+#undef a
+#undef def_func
+#undef arith_biop
+#undef keyword
+#undef predefined
+#undef begin
+#undef end
 
-cell_p prim_lambda(cell_p root, cell_p env) {
-	return alloc_cell(root, env, FUNC);
-}
-
-cell_p prim_atom(cell_p root, cell_p env) {
-	return is(ATOM, eval(car_cdnr(root, 1), env))?alloc_cell(NULL, NULL, LIST):NULL;
-}
-
-cell_p prim_eq(cell_p root, cell_p env) {
-	cell_p a = eval(car_cdnr(root, 1), env);
-	cell_p b = eval(car_cdnr(root, 2), env);
-	if(!is_same_atom(a, b)) { return NULL; }
-	return alloc_cell(NULL, NULL, LIST);
-}
-
-cell_p prim_cons(cell_p root, cell_p env) {
-	cell_p a = eval(car_cdnr(root, 1), env);
-	cell_p b = eval(car_cdnr(root, 2), env);
-	return alloc_cell(a, b, LIST);
-}
-
-cell_p prim_car(cell_p root, cell_p env) {
-	return car(eval(car_cdnr(root, 1), env));
-}
-
-cell_p prim_cdr(cell_p root, cell_p env) {
-	return cdr(eval(car_cdnr(root, 1), env));
-}
-
-cell_p prim_add(cell_p root, cell_p env) {
-	cell_p a = eval(car_cdnr(root, 1), env);
-	cell_p b = eval(car_cdnr(root, 2), env);
-	return alloc_cell((cell_p)((intptr_t)car(a) + (intptr_t)car(b)), NULL, NUMBER);
-}
-
-cell_p prim_sub(cell_p root, cell_p env) {
-	cell_p a = eval(car_cdnr(root, 1), env);
-	cell_p b = eval(car_cdnr(root, 2), env);
-	return alloc_cell((cell_p)((intptr_t)car(a) - (intptr_t)car(b)), NULL, NUMBER);
-}
-
-cell_p (*keyword_funcs[])(cell_p, cell_p) = {
-	prim_quote,
-	prim_quote,
-	prim_if,
-	prim_lambda,
-};
-cell_p (*predefined_funcs[])(cell_p, cell_p) = {
-	prim_atom,
-	prim_eq,
-	prim_cons,
-	prim_car,
-	prim_cdr,
-	prim_add,
-	prim_sub,
-};
+#define INCLUDE_FILE
+#define keyword(s, t, n, exp) to_funcname(t)
+#define predefined(s, t, n, exp) to_funcname(t)
+#define begin(k, K) cell_p (*k##_funcs[])(cell_p, cell_p) = {
+#define end(k, K) };
+#define to_funcname(s) prim_##s,
+#include __FILE__
+#undef INCLUDE_FILE
+#undef keyword
+#undef predefined
+#undef begin
+#undef end
+#undef to_funcname
 
 cell_p eval(cell_p root, cell_p env) {
 	switch(type(root)) {
@@ -410,13 +354,13 @@ cell_p eval(cell_p root, cell_p env) {
 			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
 				if(is_same_string(keyword[i], car(root))) return keyword_funcs[i](root, env);
 			}
-			cell_p car = eval(car(root), env);
+			cell_p evaled_car = eval(car(root), env);
 			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
-				if(is_same_string(predefined[i], car)) return predefined_funcs[i](root, env);
+				if(is_same_string(predefined[i], evaled_car)) return predefined_funcs[i](root, env);
 			}
-			assert(is(FUNC, car));
-			cell_p new_env = make_new_env(car, cdr(root), env);
-			return eval(car(cdr(cdr(car(car)))), new_env);
+			assert(is(FUNC, evaled_car));
+			cell_p new_env = make_new_env(evaled_car, cdr(root), env);
+			return eval(car(cdr(cdr(car(evaled_car)))), new_env);
 		} default: {
 			assert(false);
 		}
