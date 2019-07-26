@@ -26,6 +26,7 @@ typedef enum {
 #define type(p) ((type)((uintptr_t)p) & 0x7)
 #define is(t, p) (type(p) == t)
 #define to(t, p) ((cell_p)((((uintptr_t)p) & ~0x7) | t))
+#define cons(car, cdr) (alloc_cell(car, cdr, LIST))
 #define car(p) (((cell_p)(((uintptr_t)p) & ~0x7))->car)
 #define cdr(p) (((cell_p)(((uintptr_t)p) & ~0x7))->cdr)
 
@@ -34,6 +35,11 @@ cell_p alloc_cell(cell_p car, cell_p cdr, type t) {
 	ret->car = car;
 	ret->cdr = cdr;
 	return to(t, ret);
+}
+
+cell_p car_cdnr(cell_p r, unsigned int n) {
+	if(n == 0) return car(r);
+	return car_cdnr(cdr(r), n - 1);
 }
 
 char source[1024] = "";
@@ -125,7 +131,7 @@ cell_p parse_list(void) {
 	if(tok.type == DOT) return tokenize(true), parse();
 	cell_p car = parse();
 	cell_p cdr = parse_list();
-	ret = alloc_cell(car, cdr, LIST);
+	ret = cons(car, cdr);
 	return ret;
 }
 
@@ -140,7 +146,7 @@ cell_p parse(void) {
 			return root;
 		} case QUOTE: {
 			tokenize(true);
-			cell_p root = alloc_cell(alloc_cell((cell_p)(uintptr_t)tok.pos, (cell_p)(uintptr_t)tok.len, ATOM), NULL, LIST);
+			cell_p root = cons(alloc_cell((cell_p)(uintptr_t)tok.pos, (cell_p)(uintptr_t)tok.len, ATOM), NULL);
 			cdr(root) = parse();
 			return root;
 		} case NUM: {
@@ -224,11 +230,6 @@ bool is_same_atom(cell_p a, cell_p b) {
 	}
 }
 
-cell_p car_cdnr(cell_p r, unsigned int n) {
-	if(n == 0) return car(r);
-	return car_cdnr(cdr(r), n - 1);
-}
-
 cell_p get_from_env(cell_p atom, cell_p env) {
 	if(!env) return NULL;
 	if(is_same_atom(atom, car(car(env)))) return cdr(car(env));
@@ -246,7 +247,7 @@ cell_p get_from_frame(cell_p atom, cell_p frame) {
 cell_p eval(cell_p, cell_p);
 cell_p eval_args(cell_p args, cell_p frame) {
 	if(!args) return NULL;
-	return alloc_cell(eval(car(args), frame), eval_args(cdr(args), frame), LIST);
+	return cons(eval(car(args), frame), eval_args(cdr(args), frame));
 }
 
 cell_p make_new_env(cell_p arg_decl, cell_p args, cell_p frame) {
@@ -254,11 +255,11 @@ cell_p make_new_env(cell_p arg_decl, cell_p args, cell_p frame) {
 	cell_p evaled_args = eval_args(args, frame);
 	for(; arg_decl && is(LIST, arg_decl); ) {
 		assert(is(ATOM, car(arg_decl)));
-		env = alloc_cell(alloc_cell(car(arg_decl), car(evaled_args), LIST), env, LIST);
+		env = cons(cons(car(arg_decl), car(evaled_args)), env);
 		arg_decl = cdr(arg_decl);
 		evaled_args = cdr(evaled_args);
 	}
-	if(is(ATOM, arg_decl)) return alloc_cell(alloc_cell(arg_decl, evaled_args, LIST), env, LIST);
+	if(is(ATOM, arg_decl)) return cons(cons(arg_decl, evaled_args), env);
 	return env;
 }
 
@@ -266,7 +267,7 @@ cell_p make_new_frame(cell_p func, cell_p args, cell_p frame) {
 	cell_p lambda = car(func);
 	cell_p lambda_frame = cdr(func);
 	cell_p env = make_new_env(car_cdnr(lambda, 1), args, frame);
-	return alloc_cell(env, lambda_frame, LIST);
+	return cons(env, lambda_frame);
 }
 
 #define keyword(s, t, n, exp) def_func(t, n, exp)
@@ -293,6 +294,16 @@ cell_p make_new_frame(cell_p func, cell_p args, cell_p frame) {
 #undef end
 #undef to_funcname
 
+cell_p apply(cell_p func, cell_p args, cell_p frame) {
+	cell_p new_frame = cons(NULL, make_new_frame(func, args, frame));
+	cell_p body = cdr(cdr(car(func)));
+	cell_p ret = NULL;
+	for(; body; body = cdr(body)) {
+		ret = eval(car(body), new_frame);
+	}
+	return ret;
+}
+
 cell_p eval(cell_p root, cell_p frame) {
 	switch(type(root)) {
 		case ATOM: {
@@ -313,10 +324,7 @@ cell_p eval(cell_p root, cell_p frame) {
 				if(is_same_string(predefined[i], evaled_car)) return predefined_funcs[i](root, frame);
 			}
 			assert(is(FUNC, evaled_car));
-			return eval(
-					car(cdr(cdr(car(evaled_car)))),
-					make_new_frame(evaled_car, cdr(root), frame)
-					);
+			return apply(evaled_car, cdr(root), frame);
 		} default: {
 			assert(false);
 		}
