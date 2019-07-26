@@ -1,5 +1,5 @@
 #define A(n) A##n
-#define arg(n) eval(car_cdnr(root, n), env)
+#define arg(n) eval(car_cdnr(root, n), frame)
 #define decl_arg(n) cell_p a##n = arg(n)
 #define A0
 #define A1 A0; decl_arg(1)
@@ -9,12 +9,13 @@
 #define A5 A4; decl_arg(5)
 #define A6 A5; decl_arg(6)
 #define a(n) a##n
+#define arith_biop(a,op, b) ((cell_p)(((intptr_t)car(a)) op ((intptr_t)car(b))))
 
 begin(keyword, KEYWORD)
 keyword("'", q, 0, cdr(root))
 keyword("quote", quote, 0, cdr(root))
 keyword("if", if, 0, arg(1)?arg(2):arg(3))
-keyword("lambda", lambda, 0, alloc_cell(root, env, FUNC))
+keyword("lambda", lambda, 0, alloc_cell(root, frame, FUNC))
 end(keyword, KEYWORD)
 
 begin(predefined, PREDEFINED)
@@ -41,3 +42,4 @@ end(predefined, PREDEFINED)
 #undef A5
 #undef A6
 #undef a
+#undef arith_biop

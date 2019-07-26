@@ -1,26 +1,3 @@
-#ifdef INCLUDE_FILE
-begin(keyword, KEYWORD)
-keyword("'", q, 0, cdr(root))
-keyword("quote", quote, 0, cdr(root))
-keyword("if", if, 0, arg(1)?arg(2):arg(3))
-keyword("lambda", lambda, 0, alloc_cell(root, env, FUNC))
-end(keyword, KEYWORD)
-
-begin(predefined, PREDEFINED)
-predefined("atom", atom, 1, is(ATOM, a(1))?alloc_cell(NULL, NULL, LIST):NULL)
-predefined("eq", eq, 2, is_same_atom(a(1), a(2))?alloc_cell(NULL, NULL, LIST):NULL)
-predefined("cons", cons, 2, alloc_cell(a(1), a(2), LIST))
-predefined("car", car, 1, car(a(1)))
-predefined("cdr", cdr, 1, cdr(a(1)))
-predefined("_add", add, 2, alloc_cell(arith_biop(a(1), +, a(2)), NULL, NUMBER))
-predefined("_sub", sub, 2, alloc_cell(arith_biop(a(1), -, a(2)), NULL, NUMBER))
-predefined("_mul", mul, 2, alloc_cell(arith_biop(a(1), *, a(2)), NULL, NUMBER))
-predefined("_div", div, 2, alloc_cell(arith_biop(a(1), /, a(2)), NULL, NUMBER))
-predefined("_mod", mod, 2, alloc_cell(arith_biop(a(1), %, a(2)), NULL, NUMBER))
-end(predefined, PREDEFINED)
-
-#else
-
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,28 +38,24 @@ cell_p alloc_cell(cell_p car, cell_p cdr, type t) {
 
 char source[1024] = "";
 
-#define INCLUDE_FILE
 #define keyword(s, t, n, exp) to_constant(s, t)
 #define predefined(s, t, n, exp) to_constant(s, t)
 #define begin(k, K) enum {
 #define end(k, K) NUM_OF_##K };
 #define to_constant(s, t) K_##t,
-#include __FILE__
-#undef INCLUDE_FILE
+#include "def.h"
 #undef keyword
 #undef predefined
 #undef begin
 #undef end
 #undef to_constant
 
-#define INCLUDE_FILE
 #define keyword(s, t, n, exp) to_lit(s)
 #define predefined(s, t, n, exp) to_lit(s)
 #define begin(k, K) const char *k[] = {
 #define end(k, K) };
 #define to_lit(s) s,
-#include __FILE__
-#undef INCLUDE_FILE
+#include "def.h"
 #undef keyword
 #undef predefined
 #undef begin
@@ -163,10 +136,7 @@ cell_p parse(void) {
 			tokenize(true);
 			cell_p root = parse_list();
 			tok = tokenize(true);
-			if(tok.type != RO_KET) {
-				err("parse failed: pos: %zd, %*s", tok.pos, (int)tok.len, source + tok.pos);
-				exit(EXIT_FAILURE);
-			}
+			assert(tok.type == RO_KET);
 			return root;
 		} case QUOTE: {
 			tokenize(true);
@@ -186,38 +156,40 @@ cell_p parse(void) {
 	}
 }
 
+#define print_rec(root, pre, f1, in, f2, post) (printf(pre), print_##f1(car(root)), printf(in), print_##f2(cdr(root)), printf(post), root)
+
 cell_p print_cell(cell_p);
 cell_p print_env(cell_p env) {
 	if(!env) return NULL;
-	print_cell(car(car(env)));
-	printf(" -> ");
-	print_cell(cdr(car(env)));
-	printf(";");
-	print_env(cdr(env));
-	return env;
+	print_rec(car(env), "", cell, " -> ", cell, ";");
+	return print_env(cdr(env));
+}
+cell_p print_frame(cell_p frame) {
+	if(!frame) return NULL;
+	printf("<");
+	print_env(car(frame));
+	printf(">");
+	return print_frame(cdr(frame));
+
 }
 
 cell_p print_cell(cell_p root) {
 	static bool iscdr = false;
-	if(is(LIST, root)) {
-		if(!root) return printf("NULL"), root;
-		printf("[");
-		print_cell(car(root));
-		printf(", ");
-		print_cell(cdr(root));
-		printf("]");
-	} else if(is(ATOM, root)) {
-		printf("%.*s", (int)(uintptr_t)cdr(root), source + (uintptr_t)car(root));
-	} else if(is(NUMBER, root)) {
-		printf("%ld", (intptr_t)car(root));
-	} else if(is(FUNC, root)) {
-		printf("{");
-		print_cell(car(root));
-		printf(", ");
-		print_env(cdr(root));
-		printf("}");
-	} else {
-		assert(false);
+	switch(type(root)) {
+		case LIST: {
+			if(!root) return printf("🈚"), root;
+			return print_rec(root, "[", cell, ", ", cell, "]");
+		} case ATOM: {
+			printf("%.*s", (int)(uintptr_t)cdr(root), source + (uintptr_t)car(root));
+			break;
+		} case NUMBER: {
+			printf("%ld", (intptr_t)car(root));
+			break;
+		} case FUNC: {
+			return print_rec(root, "{", cell, "; ", frame, "}");
+		} default: {
+			assert(false);
+		}
 	}
 	return root;
 }
@@ -229,13 +201,11 @@ bool is_same_string(char const *str, cell_p root) {
 	return strlen(str) == len && !strncmp(str, source + pos, len);
 }
 
-#define INCLUDE_FILE
 #define begin(k, K) bool in_##k(cell_p root) { for(size_t i = 0; i < NUM_OF_##K; i++) { if(is_same_string(k[i], root)) { return true; } } return false;
 #define end(k, K) }
 #define keyword(s, t, n, exp)
 #define predefined(s, t, n, exp)
-#include __FILE__
-#undef INCLUDE_FILE
+#include "def.h"
 #undef begin
 #undef end
 #undef keyword
@@ -265,84 +235,68 @@ cell_p get_from_env(cell_p atom, cell_p env) {
 	return get_from_env(atom, cdr(env));
 }
 
-cell_p eval(cell_p, cell_p);
-cell_p eval_args(cell_p args, cell_p env) {
-	if(!args) return NULL;
-	return alloc_cell(eval(car(args), env), eval_args(cdr(args), env), LIST);
+cell_p get_from_frame(cell_p atom, cell_p frame) {
+	if(!frame) return NULL;
+	cell_p obj = get_from_env(atom, car(frame));
+	if(!obj) return get_from_frame(atom, cdr(frame));
+	return obj;
 }
 
-cell_p make_new_env(cell_p func, cell_p args, cell_p env) {
-	cell_p lambda = car(func);
-	cell_p new_env = cdr(func);
-	cell_p ids = car_cdnr(lambda, 1);
-	cell_p evaled_args = eval_args(args, env);
-	for(; ids && is(LIST, ids); ) {
-		assert(is(ATOM, car(ids)));
-		new_env = alloc_cell(alloc_cell(car(ids), car(evaled_args), LIST), new_env, LIST);
-		ids = cdr(ids);
+
+cell_p eval(cell_p, cell_p);
+cell_p eval_args(cell_p args, cell_p frame) {
+	if(!args) return NULL;
+	return alloc_cell(eval(car(args), frame), eval_args(cdr(args), frame), LIST);
+}
+
+cell_p make_new_env(cell_p arg_decl, cell_p args, cell_p frame) {
+	cell_p env = NULL;
+	cell_p evaled_args = eval_args(args, frame);
+	for(; arg_decl && is(LIST, arg_decl); ) {
+		assert(is(ATOM, car(arg_decl)));
+		env = alloc_cell(alloc_cell(car(arg_decl), car(evaled_args), LIST), env, LIST);
+		arg_decl = cdr(arg_decl);
 		evaled_args = cdr(evaled_args);
 	}
-	if(is(ATOM, ids)) return alloc_cell(alloc_cell(ids, evaled_args, LIST), new_env, LIST);
-	return new_env;
+	if(is(ATOM, arg_decl)) return alloc_cell(alloc_cell(arg_decl, evaled_args, LIST), env, LIST);
+	return env;
 }
 
-#define INCLUDE_FILE
-#define A(n) A##n
-#define arg(n) eval(car_cdnr(root, n), env)
-#define decl_arg(n) cell_p a##n = arg(n)
-#define A0
-#define A1 A0; decl_arg(1)
-#define A2 A1; decl_arg(2)
-#define A3 A2; decl_arg(3)
-#define A4 A3; decl_arg(4)
-#define A5 A4; decl_arg(5)
-#define A6 A5; decl_arg(6)
-#define a(n) a##n
-#define def_func(t, n, exp) cell_p prim_##t(cell_p root, cell_p env) { A(n); return exp; }
-#define arith_biop(a,op, b) ((cell_p)(((intptr_t)car(a)) op ((intptr_t)car(b))))
+cell_p make_new_frame(cell_p func, cell_p args, cell_p frame) {
+	cell_p lambda = car(func);
+	cell_p lambda_frame = cdr(func);
+	cell_p env = make_new_env(car_cdnr(lambda, 1), args, frame);
+	return alloc_cell(env, lambda_frame, LIST);
+}
 
 #define keyword(s, t, n, exp) def_func(t, n, exp)
 #define predefined(s, t, n, exp) def_func(t, n, exp)
 #define begin(k, K)
 #define end(k, K)
-#include __FILE__
-#undef INCLUDE_FILE
-#undef A
-#undef arg
-#undef decl_arg
-#define A0
-#undef A1
-#undef A2
-#undef A3
-#undef A4
-#undef A5
-#undef A6
-#undef a
-#undef def_func
-#undef arith_biop
+#define def_func(t, n, exp) cell_p prim_##t(cell_p root, cell_p frame) { A(n); return exp; }
+#include "def.h"
 #undef keyword
 #undef predefined
 #undef begin
 #undef end
+#undef def_func
 
-#define INCLUDE_FILE
 #define keyword(s, t, n, exp) to_funcname(t)
 #define predefined(s, t, n, exp) to_funcname(t)
 #define begin(k, K) cell_p (*k##_funcs[])(cell_p, cell_p) = {
 #define end(k, K) };
 #define to_funcname(s) prim_##s,
-#include __FILE__
-#undef INCLUDE_FILE
+#include "def.h"
 #undef keyword
 #undef predefined
 #undef begin
 #undef end
 #undef to_funcname
 
-cell_p eval(cell_p root, cell_p env) {
+cell_p eval(cell_p root, cell_p frame) {
 	switch(type(root)) {
 		case ATOM: {
-			cell_p obj = get_from_env(root, env);
+			cell_p obj = get_from_frame(root, frame);
 			if(obj) return obj;
 			if(in_predefined(root)) {
 				return root;
@@ -352,15 +306,17 @@ cell_p eval(cell_p root, cell_p env) {
 			return root;
 		} case LIST: {
 			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
-				if(is_same_string(keyword[i], car(root))) return keyword_funcs[i](root, env);
+				if(is_same_string(keyword[i], car(root))) return keyword_funcs[i](root, frame);
 			}
-			cell_p evaled_car = eval(car(root), env);
+			cell_p evaled_car = eval(car(root), frame);
 			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
-				if(is_same_string(predefined[i], evaled_car)) return predefined_funcs[i](root, env);
+				if(is_same_string(predefined[i], evaled_car)) return predefined_funcs[i](root, frame);
 			}
 			assert(is(FUNC, evaled_car));
-			cell_p new_env = make_new_env(evaled_car, cdr(root), env);
-			return eval(car(cdr(cdr(car(evaled_car)))), new_env);
+			return eval(
+					car(cdr(cdr(car(evaled_car)))),
+					make_new_frame(evaled_car, cdr(root), frame)
+					);
 		} default: {
 			assert(false);
 		}
@@ -381,4 +337,3 @@ int main(void) {
 	puts("");
 }
 
-#endif //INCLUDE_FILE
