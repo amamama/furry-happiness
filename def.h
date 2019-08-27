@@ -21,11 +21,14 @@ keyword("define", define, 0, (car(frame) = cons(cons(arg(1), e(arg(2))), car(fra
 end(keyword, KEYWORD)
 
 begin(predefined, PREDEFINED)
-predefined("atom", atom, 1, is(ATOM, a(1))?cons(NULL, NULL):NULL)
-predefined("eq", eq, 2, is_same_atom(a(1), a(2))?cons(NULL, NULL):NULL)
-predefined("cons", cons, 2, cons(a(1), a(2)))
-predefined("car", car, 1, car(a(1)))
-predefined("cdr", cdr, 1, cdr(a(1)))
+predefined("atom", atom, 1, is(ATOM, a(1))?cons(NULL, NULL):NULL) //to be obsolete for typing
+predefined("eq", eq, 2, is_same_atom(a(1), a(2)) || a(1) == a(2)?cons(NULL, NULL):NULL)
+predefined("cons", cons, 2, cons(a(1), a(2))) // 'a -> list 'a -> list 'a
+predefined("car", car, 1, car(a(1))) // list 'a -> 'a
+predefined("cdr", cdr, 1, cdr(a(1))) // list 'a -> list 'a
+predefined("pair", pair, 2, cons(a(1), a(2))) //'a -> 'b -> pair 'a 'b
+predefined("fst", fst, 1, car(a(1))) // pair 'a 'b -> 'a
+predefined("snd", snd, 1, cdr(a(1))) // pair 'a 'b -> 'b
 predefined("_add", add, 2, alloc_cell(arith_biop(a(1), +, a(2)), NULL, NUMBER))
 predefined("_sub", sub, 2, alloc_cell(arith_biop(a(1), -, a(2)), NULL, NUMBER))
 predefined("_mul", mul, 2, alloc_cell(arith_biop(a(1), *, a(2)), NULL, NUMBER))

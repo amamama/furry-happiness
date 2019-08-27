@@ -1,7 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdalign.h>
 #include <stdbool.h>
 #include <string.h>
 #include <ctype.h>
@@ -9,28 +8,11 @@
 
 #define err(...) (fprintf(stderr, "%s:%d:%s:", __FILE__, __LINE__, __func__), fprintf(stderr,""  __VA_ARGS__))
 
-typedef struct cell *cell_p;
-typedef struct cell {
-	cell_p alignas(8) car;
-	cell_p alignas(8) cdr;
-} cell, *cell_p;
 
-typedef enum {
-	LIST,
-	ATOM,
-	NUMBER,
-	FUNC,
-	BROKEN_HEART = 7,
-} type;
+#include "pl.h"
+#include "uf.h"
 
-#define type(p) ((type)((uintptr_t)p) & 0x7)
-#define is(t, p) (type(p) == t)
-#define to(t, p) ((cell_p)((((uintptr_t)p) & ~0x7) | t))
-#define cons(car, cdr) (alloc_cell(car, cdr, LIST))
-#define car(p) (((cell_p)(((uintptr_t)p) & ~0x7))->car)
-#define cdr(p) (((cell_p)(((uintptr_t)p) & ~0x7))->cdr)
-
-cell_p alloc_cell(cell_p car, cell_p cdr, type t) {
+cell_p alloc_cell(cell_p car, cell_p cdr, cell_type t) {
 	cell_p ret = malloc(sizeof(cell));
 	ret->car = car;
 	ret->cdr = cdr;
@@ -43,18 +25,6 @@ cell_p car_cdnr(cell_p r, unsigned int n) {
 }
 
 char source[1024] = "";
-
-#define keyword(s, t, n, exp) to_constant(s, t)
-#define predefined(s, t, n, exp) to_constant(s, t)
-#define begin(k, K) enum {
-#define end(k, K) NUM_OF_##K };
-#define to_constant(s, t) K_##t,
-#include "def.h"
-#undef keyword
-#undef predefined
-#undef begin
-#undef end
-#undef to_constant
 
 #define keyword(s, t, n, exp) to_lit(s)
 #define predefined(s, t, n, exp) to_lit(s)
@@ -89,7 +59,7 @@ token tokenize(bool consume) {
 	static size_t idx = 0;
 	int old_idx = 0;
 	for(; isspace(source[idx]); idx++);
-	if(source[idx] == '\0') return (token){EOT, idx};
+	if(source[idx] == '\0') return (token){EOT, {idx, 0}};
 	if(source[idx] == '(') return (idx += consume, (token){RO_BRA, {idx - consume, 1}});
 	if(source[idx] == ')') return (idx += consume, (token){RO_KET, {idx - consume, 1}});
 	if(source[idx] == '.') return (idx += consume, (token){DOT, {idx - consume, 1}});
@@ -180,8 +150,7 @@ cell_p print_frame(cell_p frame) {
 }
 
 cell_p print_cell(cell_p root) {
-	static bool iscdr = false;
-	switch(type(root)) {
+	switch(cty(root)) {
 		case LIST: {
 			if(!root) return printf("🈚"), root;
 			return print_rec(root, "[", cell, ", ", cell, "]");
@@ -218,8 +187,8 @@ bool is_same_string(char const *str, cell_p root) {
 #undef predefined
 
 bool is_same_atom(cell_p a, cell_p b) {
-	if(type(a) != type(b)) return false;
-	switch(type(a)) {
+	if(cty(a) != cty(b)) return false;
+	switch(cty(a)) {
 		case ATOM:
 		return !strncmp(source + (uintptr_t)car(a), source + (uintptr_t)car(b), (uintptr_t)cdr(a));
 		case NUMBER:
@@ -286,7 +255,7 @@ cell_p make_new_frame(cell_p func, cell_p args, cell_p frame) {
 #define predefined(s, t, n, exp) to_funcname(t)
 #define begin(k, K) cell_p (*k##_funcs[])(cell_p, cell_p) = {
 #define end(k, K) };
-#define to_funcname(s) prim_##s,
+#define to_funcname(t) prim_##t,
 #include "def.h"
 #undef keyword
 #undef predefined
@@ -305,7 +274,7 @@ cell_p apply(cell_p func, cell_p args, cell_p frame) {
 }
 
 cell_p eval(cell_p root, cell_p frame) {
-	switch(type(root)) {
+	switch(cty(root)) {
 		case ATOM: {
 			cell_p obj = get_from_frame(root, frame);
 			if(obj) return obj;
@@ -340,6 +309,8 @@ int main(void) {
 		}
 	}
 	cell_p ast = print_cell(parse());
+	puts("");
+	infer(ast);
 	puts("");
 	print_cell(eval(ast, NULL));
 	puts("");
