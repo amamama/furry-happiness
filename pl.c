@@ -24,7 +24,7 @@ cell_p car_cdnr(cell_p r, unsigned int n) {
 	return car_cdnr(cdr(r), n - 1);
 }
 
-char source[1024] = "";
+char source[65536] = "";
 
 #define keyword(s, t, n, exp) to_lit(s)
 #define predefined(s, t, n, exp) to_lit(s)
@@ -117,7 +117,7 @@ cell_p parse(void) {
 		} case QUOTE: {
 			tokenize(true);
 			cell_p root = cons(alloc_cell((cell_p)(uintptr_t)tok.pos, (cell_p)(uintptr_t)tok.len, ATOM), NULL);
-			cdr(root) = parse();
+			cdr(root) = alloc_cell(parse(), NULL, LIST);
 			return root;
 		} case NUM: {
 			tok = tokenize(true);
@@ -140,20 +140,36 @@ cell_p print_env(cell_p env) {
 	print_rec(car(env), "", cell, " -> ", cell, ";");
 	return print_env(cdr(env));
 }
+
+
+cell_p visited[1024];
+size_t idx = 0;
+
 cell_p print_frame(cell_p frame) {
 	if(!frame) return NULL;
+
+	for(size_t i = 0; i <= idx; i++) {
+		if(visited[i] == frame) return printf("%p", frame), NULL;
+	}
+	visited[idx++] = frame;
+	printf("%p : ", frame);
+
 	printf("<");
 	print_env(car(frame));
 	printf(">");
 	return print_frame(cdr(frame));
-
 }
 
+#define print_cell print_cell_aux
+#define cell cell_aux
 cell_p print_cell(cell_p root) {
+
 	switch(cty(root)) {
 		case LIST: {
-			if(!root) return printf("🈚"), root;
-			return print_rec(root, "[", cell, ", ", cell, "]");
+			//if(!root) return printf("🈚"), root;
+			if(!root) return printf("🈳"), root;
+			//if(!root) return printf("🍌"), root;
+			return printf("%p : ", root), print_rec(root, "(", cell, ", ", cell, ")");
 		} case ATOM: {
 			printf("%.*s", (int)(uintptr_t)cdr(root), source + (uintptr_t)car(root));
 			break;
@@ -167,6 +183,14 @@ cell_p print_cell(cell_p root) {
 		}
 	}
 	return root;
+}
+
+#undef print_cell
+#undef cell
+
+cell_p print_cell(cell_p root) {
+	idx = 0;
+	return print_cell_aux(root);
 }
 
 bool is_same_string(char const *str, cell_p root) {
@@ -189,8 +213,9 @@ bool is_same_string(char const *str, cell_p root) {
 bool is_same_atom(cell_p a, cell_p b) {
 	if(cty(a) != cty(b)) return false;
 	switch(cty(a)) {
-		case ATOM:
-		return !strncmp(source + (uintptr_t)car(a), source + (uintptr_t)car(b), (uintptr_t)cdr(a));
+		case ATOM:;
+		uintptr_t longer_length = (uintptr_t)cdr(a) < (uintptr_t)cdr(b)?(uintptr_t)cdr(b):(uintptr_t)cdr(a);
+		return !strncmp(source + (uintptr_t)car(a), source + (uintptr_t)car(b), longer_length);
 		case NUMBER:
 		return (intptr_t)car(a) == (intptr_t)car(b);
 
@@ -201,7 +226,7 @@ bool is_same_atom(cell_p a, cell_p b) {
 
 cell_p get_from_env(cell_p atom, cell_p env) {
 	if(!env) return NULL;
-	if(is_same_atom(atom, car(car(env)))) return cdr(car(env));
+	if(is_same_atom(atom, car(car(env)))) return car(env);
 	return get_from_env(atom, cdr(env));
 }
 
@@ -276,12 +301,11 @@ cell_p apply(cell_p func, cell_p args, cell_p frame) {
 cell_p eval(cell_p root, cell_p frame) {
 	switch(cty(root)) {
 		case ATOM: {
+			if(in_predefined(root)) return root;
 			cell_p obj = get_from_frame(root, frame);
-			if(obj) return obj;
-			if(in_predefined(root)) {
-				return root;
-			}
-			assert(false);
+			if(!obj) print_cell(root), puts(" is not in frame");
+			assert(obj);
+			return cdr(obj);
 		} case NUMBER: {
 			return root;
 		} case LIST: {
@@ -310,7 +334,7 @@ int main(void) {
 	}
 	cell_p ast = print_cell(parse());
 	puts("");
-	infer(ast);
+	//infer(ast);
 	puts("");
 	print_cell(eval(ast, NULL));
 	puts("");

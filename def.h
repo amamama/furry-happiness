@@ -10,18 +10,21 @@
 #define A5 A4; decl_arg(5)
 #define A6 A5; decl_arg(6)
 #define a(n) a##n
-#define arith_biop(a,op, b) ((cell_p)(((intptr_t)car(a)) op ((intptr_t)car(b))))
+#define arith_biop(a, op, b) ((cell_p)(((intptr_t)car(a)) op ((intptr_t)car(b))))
 
 begin(keyword, KEYWORD)
-keyword("'", q, 0, cdr(root))
-keyword("quote", quote, 0, cdr(root))
+keyword("'", q, 0, arg(1))
+keyword("quote", quote, 0, arg(1))
 keyword("if", if, 0, e(arg(1))?e(arg(2)):e(arg(3)))
 keyword("lambda", lambda, 0, alloc_cell(root, frame, FUNC))
-keyword("define", define, 0, (car(frame) = cons(cons(arg(1), e(arg(2))), car(frame)), NULL))
+keyword("define", define, 0, (car(frame) = cons(cons(arg(1), e(arg(2))), car(frame)), NULL)) //現在のフレームの環境に変数を追加する
 end(keyword, KEYWORD)
 
 begin(predefined, PREDEFINED)
+//predefined("atom?", atom, 1, is(ATOM, a(1))?cons(NULL, NULL):NULL) //to be obsolete for typing
 predefined("atom", atom, 1, is(ATOM, a(1))?cons(NULL, NULL):NULL) //to be obsolete for typing
+predefined("number?", number, 1, is(NUMBER, a(1))?cons(NULL, NULL):NULL) //to be obsolete for typing
+//predefined("eq?", eq, 2, is_same_atom(a(1), a(2)) || a(1) == a(2)?cons(NULL, NULL):NULL)
 predefined("eq", eq, 2, is_same_atom(a(1), a(2)) || a(1) == a(2)?cons(NULL, NULL):NULL)
 predefined("cons", cons, 2, cons(a(1), a(2))) // 'a -> list 'a -> list 'a
 predefined("car", car, 1, car(a(1))) // list 'a -> 'a
