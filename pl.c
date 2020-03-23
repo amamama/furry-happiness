@@ -137,12 +137,12 @@ cell_p parse(void) {
 cell_p print_cell(cell_p);
 cell_p print_env(cell_p env) {
 	if(!env) return NULL;
-	print_rec(car(env), "", cell, " -> ", cell, ";");
+	print_rec(car(env), "", cell, " -> ", cell, ";\n");
 	return print_env(cdr(env));
 }
 
 
-cell_p visited[1024];
+cell_p visited[65536];
 size_t idx = 0;
 
 cell_p print_frame(cell_p frame) {
@@ -156,7 +156,7 @@ cell_p print_frame(cell_p frame) {
 
 	printf("<");
 	print_env(car(frame));
-	printf(">");
+	printf(">\n");
 	return print_frame(cdr(frame));
 }
 
@@ -177,7 +177,7 @@ cell_p print_cell(cell_p root) {
 			printf("%ld", (intptr_t)car(root));
 			break;
 		} case FUNC: {
-			return print_rec(root, "{", cell, "; ", frame, "}");
+			return print_rec(root, "{", cell, "; ", frame, "}\n");
 		} default: {
 			assert(false);
 		}
@@ -299,6 +299,12 @@ cell_p apply(cell_p func, cell_p args, cell_p frame) {
 }
 
 cell_p eval(cell_p root, cell_p frame) {
+#ifndef NODEBUG
+	puts("root -----");
+	print_cell(root);
+	puts("\n-----");
+	getchar();
+#endif
 	switch(cty(root)) {
 		case ATOM: {
 			if(in_predefined(root)) return root;
@@ -324,9 +330,10 @@ cell_p eval(cell_p root, cell_p frame) {
 	}
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+	FILE *fp = fopen(argv[1], "r");
 	for(size_t i = 0; i < sizeof(source); i++) {
-		source[i] = getchar();
+		source[i] = fgetc(fp);
 		if(source[i] == EOF) {
 			source[i] = 0;
 			break;

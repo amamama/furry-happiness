@@ -27,7 +27,7 @@ typedef enum {
 cell_p alloc_cell(cell_p, cell_p, cell_type);
 cell_p car_cdnr(cell_p, unsigned int);
 
-cell_p get_from_env(cell_p, cell_p);
+cell_p get_from_frame(cell_p, cell_p);
 bool is_same_string(char const *, cell_p);
 
 #define keyword(s, t, n, exp) to_constant(K, t)

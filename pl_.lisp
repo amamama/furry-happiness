@@ -31,11 +31,15 @@
 				root
 			(if (eq root (quote -atom))
 				root
+			(if (eq root (quote -set-car!))
+				root
+			(if (eq root (quote -set-cdr!))
+				root
 				((lambda (obj)
 					(if (eq obj (quote ()))
-						(quote error-in-eval-atom)
+						(dump root frame)
 						(cdr obj)))
-				(get-from-frame root frame)))))))))
+				(get-from-frame root frame)))))))))))
 	(define eval-quote
 		(lambda (root frame)
 			(ca1r root)))
@@ -50,11 +54,14 @@
 			(cons root frame)))
 	(define eval-define
 		(lambda (root frame)
-			(define cdr-frame (cdr frame))
-			(define old-env (car frame))
 			(define new-entry (cons (ca1r root) (car (eval (ca2r root) frame))))
-			(define new-env (cons new-entry old-env))
-			(cons new-env cdr-frame)))
+			(define new-env (cons new-entry (car frame)))
+			(set-car! frame new-env)
+			frame))
+	(define eval-set!
+		(lambda (root frame)
+			(set-cdr! (get-from-frame (ca1r root) frame) (car (eval (ca2r root) frame)))
+			(quote ())))
 	(define eval-list
 		(lambda (root frame)
 			(define car-root (car root))
@@ -71,6 +78,8 @@
 					(eval-lambda root frame)
 				(if (eq car-root (quote -define))
 					(quote ())
+				(if (eq car-root (quote -set!))
+					(eval-set! root frame)
 					((lambda (evaled-car)
 						(define eval-cons
 							(lambda (root frame)
@@ -94,6 +103,19 @@
 								(define a1 (car (eval (ca1r root) frame)))
 								(define a2 (car (eval (ca2r root) frame)))
 								(eq a1 a2)))
+						(define eval-set-car!
+							(lambda (root frame)
+								(define a1 (car (eval (ca1r root) frame)))
+								(define a2 (car (eval (ca2r root) frame)))
+								(set-car! a1 a2)
+								(quote ())))
+						(define eval-set-cdr!
+							(lambda (root frame)
+								(define a1 (car (eval (ca1r root) frame)))
+								(define a2 (car (eval (ca2r root) frame)))
+								(set-cdr! a1 a2)
+								(quote ())
+								))
 						(if (eq evaled-car (quote -cons))
 							(eval-cons root frame)
 						(if (eq evaled-car (quote -car))
@@ -104,8 +126,12 @@
 							(eval-atom root frame)
 						(if (eq evaled-car (quote -eq))
 							(eval-eq root frame)
-							(apply evaled-car (cdr root) frame)))))))
-					(car (eval (car root) frame))))))))
+						(if (eq evaled-car (quote -set-car!))
+							(eval-set-car! root frame)
+						(if (eq evaled-car (quote -set-cdr!))
+							(eval-set-cdr! root frame)
+							(apply evaled-car (cdr root) frame)))))))))
+					(car (eval (car root) frame)))))))))
 			(cons new-value new-frame)))
 	(define eval-args
 		(lambda (args frame)
@@ -114,7 +140,6 @@
 				(cons (car (eval (car args) frame)) (eval-args (cdr args) frame)))))
 	(define make-new-env
 		(lambda (decls args frame)
-			(define evaled-args (eval-args args frame))
 			(if (eq decls (quote ()))
 				(quote ())
 				(cons (cons (car decls) (car args)) (make-new-env (cdr decls) (cdr args) frame)))))
@@ -122,7 +147,8 @@
 		(lambda (func args frame)
 			(define lamb (car func))
 			(define lamb-frame (cdr func))
-			(define env (make-new-env (ca1r lamb) args frame))
+			(define evaled-args (eval-args args frame))
+			(define env (make-new-env (ca1r lamb) evaled-args frame))
 			(cons env lamb-frame)))
 	(define apply
 		(lambda (func args frame)
@@ -134,7 +160,7 @@
 				(if (eq (cdr body) (quote ()))
 					(car evaled-body)
 					(apply-aux (cdr body) (cdr evaled-body)))))
-		(apply-aux body frame)))
+		(apply-aux body new-frame)))
 	(define eval
 		(lambda (root frame)
 			(if (eq root (quote ()))
@@ -143,4 +169,13 @@
 				(cons (eval-atom root frame) frame)
 				(eval-list root frame)))))
 	(car (eval src-list (quote ()))))
-(quote (-cons (-quote a) (-quote b))))
+(quote ((-lambda (x y z)
+	(-define a (-cons x y))
+	(-define b (-cons y z))
+	(-define c (-cons z x))
+	(-define id2 (-lambda (x) (id x)))
+	(-define id (-lambda (x) x))
+	(-cons (id2 a) (-cons b c)))
+(-quote xxx)
+(-quote yyy)
+(-quote zzz))) )
