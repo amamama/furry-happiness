@@ -299,12 +299,6 @@ cell_p apply(cell_p func, cell_p args, cell_p frame) {
 }
 
 cell_p eval(cell_p root, cell_p frame) {
-#ifndef NODEBUG
-	puts("root -----");
-	print_cell(root);
-	puts("\n-----");
-	getchar();
-#endif
 	switch(cty(root)) {
 		case ATOM: {
 			if(in_predefined(root)) return root;
