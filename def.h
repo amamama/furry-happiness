@@ -13,13 +13,30 @@
 #define arith_biop(a, op, b) ((cell_p)(((intptr_t)car(a)) op ((intptr_t)car(b))))
 
 begin(keyword, KEYWORD)
-keyword("'", q, 0, arg(1))
-keyword("quote", quote, 0, arg(1))
-keyword("if", if, 0, e(arg(1))?e(arg(2)):e(arg(3)))
-keyword("lambda", lambda, 0, alloc_cell(root, frame, FUNC))
-keyword("define", define, 0, (car(frame) = cons(cons(arg(1), e(arg(2))), car(frame)), NULL)) //現在のフレームの環境に変数を追加する
+keyword("'", q, 0,
+	arg(1)
+)
+keyword("quote", quote, 0,
+	arg(1)
+)
+keyword("if", if, 0,
+	e(arg(1))?e(arg(2)):e(arg(3))
+)
+keyword("lambda", lambda, 0,
+	alloc_cell(root, frame, FUNC)
+)
+
+//現在のフレームの環境に変数を追加する
 //破壊的変更によって再帰関数の環境定義が簡単になる
-keyword("set!", set, 0, (assert(is(ATOM, arg(1))), cdr(get_from_frame(arg(1), frame)) = e(arg(2)))) // Lisp on Lispをするため（defineするため，↑のdefineは破壊的代入を行う）に追加
+keyword("define", define, 0,
+	(car(frame) = cons(cons(arg(1), e(arg(2))), car(frame)), NULL)
+)
+
+// Lisp on Lispをするため（defineするため，↑のdefineは破壊的代入を行う）に追加
+keyword("set!", set, 0,
+	cdr(get_from_frame(arg(1), frame)) = e(arg(2))
+)
+
 end(keyword, KEYWORD)
 
 begin(predefined, PREDEFINED)

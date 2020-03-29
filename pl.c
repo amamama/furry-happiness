@@ -25,6 +25,7 @@ cell_p car_cdnr(cell_p r, unsigned int n) {
 }
 
 char source[65536] = "";
+char cps_vars[65536] = "λ\0";
 
 #define keyword(s, t, n, exp) to_lit(s)
 #define predefined(s, t, n, exp) to_lit(s)
@@ -116,7 +117,7 @@ cell_p parse(void) {
 			return root;
 		} case QUOTE: {
 			tokenize(true);
-			cell_p root = cons(alloc_cell((cell_p)(uintptr_t)tok.pos, (cell_p)(uintptr_t)tok.len, ATOM), NULL);
+			cell_p root = cons(alloc_cell((cell_p)(source + tok.pos), (cell_p)(uintptr_t)tok.len, ATOM), NULL);
 			cdr(root) = alloc_cell(parse(), NULL, LIST);
 			return root;
 		} case NUM: {
@@ -124,7 +125,7 @@ cell_p parse(void) {
 			return alloc_cell((cell_p)(intptr_t)tok.num, NULL, NUMBER);
 		} case ID: {
 			tok = tokenize(true);
-			return alloc_cell((cell_p)(uintptr_t)tok.pos, (cell_p)(uintptr_t)tok.len, ATOM);
+			return alloc_cell((cell_p)(source + tok.pos), (cell_p)(uintptr_t)tok.len, ATOM);
 		} default: {
 				err("parse failed: pos: %zd, %*s", tok.pos, (int)tok.len, source + tok.pos);
 				exit(EXIT_FAILURE);
@@ -171,7 +172,7 @@ cell_p print_cell(cell_p root) {
 			//if(!root) return printf("🍌"), root;
 			return printf("%p : ", root), print_rec(root, "(", cell, ", ", cell, ")");
 		} case ATOM: {
-			printf("%.*s", (int)(uintptr_t)cdr(root), source + (uintptr_t)car(root));
+			printf("%.*s", (int)(uintptr_t)cdr(root), (char*)car(root));
 			break;
 		} case NUMBER: {
 			printf("%ld", (intptr_t)car(root));
@@ -195,9 +196,9 @@ cell_p print_cell(cell_p root) {
 
 bool is_same_string(char const *str, cell_p root) {
 	if(!is(ATOM, root)) { return false; }
-	size_t pos = (uintptr_t)car(root);
+	char *pos = (char*)car(root);
 	size_t len = (uintptr_t)cdr(root);
-	return strlen(str) == len && !strncmp(str, source + pos, len);
+	return strlen(str) == len && !strncmp(str, pos, len);
 }
 
 #define begin(k, K) bool in_##k(cell_p root) { for(size_t i = 0; i < NUM_OF_##K; i++) { if(is_same_string(k[i], root)) { return true; } } return false;
@@ -215,7 +216,7 @@ bool is_same_atom(cell_p a, cell_p b) {
 	switch(cty(a)) {
 		case ATOM:;
 		uintptr_t longer_length = (uintptr_t)cdr(a) < (uintptr_t)cdr(b)?(uintptr_t)cdr(b):(uintptr_t)cdr(a);
-		return !strncmp(source + (uintptr_t)car(a), source + (uintptr_t)car(b), longer_length);
+		return !strncmp((char*)car(a), (char*)car(b), longer_length);
 		case NUMBER:
 		return (intptr_t)car(a) == (intptr_t)car(b);
 
@@ -324,6 +325,121 @@ cell_p eval(cell_p root, cell_p frame) {
 	}
 }
 
+// cps変換のため，
+// (lambda (args) pre_bodies (define v e) post_bodies)
+// -> (lambda (args) pre_bodies (>>>(lambda (v) (set! v e) post_bodies)<<< '()))
+// のようにする．
+// これによって，ナイーブな前方参照や相互再帰ができなくなる．
+/*
+((lambda ()
+	(define add5 (lambda (x) (_add (id 5) x)))
+	(define id (lambda (x) x))
+	(add5 10)
+	))
+*/
+//手動でset!すると動くのでこれで上記の問題はこれでなんとかする
+cell_p rewrite_define(cell_p);
+cell_p rewrite_define_aux(cell_p root) {
+	assert(is_same_string("lambda", car(root)));
+	puts("\nbefore");
+	print_cell(root);
+	puts("\n===");
+	cell_p body = cdr(cdr(root));
+	for(; body && !is_same_string("define", car(car(body))); body = cdr(body)) {
+		//car(body) = rewrite_define(car(body));
+	}
+	if(!body) return root;
+	cell_p var = car_cdnr(car(body), 1);
+	cell_p exp = rewrite_define(car_cdnr(car(body), 2));
+	cell_p set_exp = cons(str_to_atom("set!"), cons(var, cons(exp, NULL)));
+	cell_p new_lambda = cons(car(root), cons(cons(var, NULL), cons(set_exp, cdr(body))));
+	new_lambda = rewrite_define(new_lambda);
+	car(body) = cons(new_lambda, cons(cons(str_to_atom("'"), cons(NULL, NULL)), NULL));
+	cdr(body) = NULL;
+	puts("\nafter");
+	print_cell(root);
+	puts("\n===");
+	return root;
+}
+
+cell_p rewrite_define(cell_p root) {
+	if(!root) return root;
+	switch(cty(root)) {
+		case ATOM:
+		case NUMBER:
+		return root;
+		case LIST: {
+			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
+				if(is_same_string(keyword[i], car(root)))
+					switch(i) {
+						case K_lambda: {
+							return rewrite_define_aux(root);
+						}
+						case K_define: {
+							// this case should not be executed
+							assert(false);
+							return NULL;
+						}
+					}
+			}
+			for(cell_p c = root; c; c = cdr(c)) {
+				car(c) = rewrite_define(car(c));
+			}
+			return root;
+		} default: {
+			assert(false);
+		}
+	}
+}
+
+cell_p to_cps(cell_p root, cell_p cont) {
+	switch(cty(root)) {
+		case ATOM:
+		case NUMBER: {
+			// (cont v)
+			return cons(cont, root);
+		} case LIST: {
+			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
+				if(is_same_string(keyword[i], car(root)))
+					switch(i) {
+						case K_q:
+						case K_quote: {
+							// (quote v)
+							// (cont (quote v))
+							return cons(cont, root);
+						} case K_if: {
+							// (id cond t e)
+							// ((λk0 .to_cps(cond, (λk1. (if k1 to_cps(t, k0) to_cps(e, k0))))) cont)
+							cell_p new_cont = NULL;
+							return to_cps(car_cdnr(root, 1), new_cont);
+						} case K_lambda: {
+							// (lambda (args) bodies)
+							/* (cont (lambda (k0 args)
+								to_cps(body1,
+									(lambda (k1) to_cps(body2,
+										(lambda (k2) to_cps(body...,
+											(lambda(kn) to_cps(bodyn, k0)))))))))
+							*/
+							return NULL;
+						}
+						case K_define: {
+							// it should not be appeared
+							assert(false);
+							return NULL;
+						}
+						case K_set: {
+							//(set! v e)
+							// to_cps(e, (lambda (k0) (cont (set! v k0))))
+							return NULL;
+						}
+					}
+			}
+		} default: {
+			assert(false);
+		}
+	}
+}
+
 int main(int argc, char **argv) {
 	FILE *fp = fopen(argv[1], "r");
 	for(size_t i = 0; i < sizeof(source); i++) {
@@ -334,10 +450,12 @@ int main(int argc, char **argv) {
 		}
 	}
 	cell_p ast = print_cell(parse());
-	puts("");
+	ast = rewrite_define(ast);
+	puts("\n---");
+	print_cell(ast);
 	//infer(ast);
-	puts("");
+	puts("\n---");
 	print_cell(eval(ast, NULL));
-	puts("");
+	puts("\n---");
 }
 

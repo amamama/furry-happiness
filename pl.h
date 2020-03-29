@@ -23,6 +23,7 @@ typedef enum {
 #define cons(car, cdr) (alloc_cell(car, cdr, LIST))
 #define car(p) (((cell_p)(((uintptr_t)p) & ~0x7))->car)
 #define cdr(p) (((cell_p)(((uintptr_t)p) & ~0x7))->cdr)
+#define str_to_atom(str) (alloc_cell((cell_p)str, (cell_p)(uintptr_t)strlen(str), ATOM))
 
 cell_p alloc_cell(cell_p, cell_p, cell_type);
 cell_p car_cdnr(cell_p, unsigned int);
