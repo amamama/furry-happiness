@@ -24,9 +24,6 @@ cell_p car_cdnr(cell_p r, unsigned int n) {
 	return car_cdnr(cdr(r), n - 1);
 }
 
-char source[65536] = "";
-char cps_vars[65536] = "λ\0";
-
 #define keyword(s, t, n, exp) to_lit(s)
 #define predefined(s, t, n, exp) to_lit(s)
 #define begin(k, K) const char *k[] = {
@@ -38,6 +35,8 @@ char cps_vars[65536] = "λ\0";
 #undef begin
 #undef end
 #undef to_lit
+
+char source[65536] = "";
 
 typedef struct {
 	enum {
@@ -164,7 +163,6 @@ cell_p print_frame(cell_p frame) {
 #define print_cell print_cell_aux
 #define cell cell_aux
 cell_p print_cell(cell_p root) {
-
 	switch(cty(root)) {
 		case LIST: {
 			//if(!root) return printf("🈚"), root;
@@ -192,6 +190,33 @@ cell_p print_cell(cell_p root) {
 cell_p print_cell(cell_p root) {
 	idx = 0;
 	return print_cell_aux(root);
+}
+
+cell_p print_list(cell_p root) {
+	switch(cty(root)) {
+		case LIST: {
+			if(!root) return printf("()"), root;
+			printf("(");
+			print_list(car(root));
+			for(cell_p c = cdr(root); c; c = cdr(c)) {
+				printf(" ");
+				print_list(car(c));
+			}
+			printf(")");
+			return root;
+		} case ATOM: {
+			printf("%.*s", (int)(uintptr_t)cdr(root), (char*)car(root));
+			break;
+		} case NUMBER: {
+			printf("%ld", (intptr_t)car(root));
+			break;
+		} case FUNC: {
+			return err("FUNC ha denai hazu"), NULL;
+		} default: {
+			assert(false);
+		}
+	}
+	return root;
 }
 
 bool is_same_string(char const *str, cell_p root) {
@@ -325,11 +350,25 @@ cell_p eval(cell_p root, cell_p frame) {
 	}
 }
 
+
+char cps_vars[65536] = "";
+cell_p gen_cps_var() {
+	static unsigned int n = 0;
+	static char *next_buffer = cps_vars;
+	char var[32] = "";
+	size_t len = snprintf(var, sizeof(var), "継続%x", n++);
+	assert(len < sizeof(var));
+	strncpy(next_buffer, var, len + 1); //for '\0' character
+	cell_p ret = str_to_atom(next_buffer);
+	next_buffer += len + 1; //for '\0'
+	return ret;
+}
+
 // cps変換のため，
 // (lambda (args) pre_bodies (define v e) post_bodies)
-// -> (lambda (args) pre_bodies (>>>(lambda (v) (set! v e) post_bodies)<<< '()))
+// -> (lambda (args) pre_bodies (rewrite_define(<<<(lambda (v) (set! v e) post_bodies)>>>) '()))
 // のようにする．
-// これによって，ナイーブな前方参照や相互再帰ができなくなる．
+// これによって，ナイーブな後方参照や相互再帰ができなくなる．
 /*
 ((lambda ()
 	(define add5 (lambda (x) (_add (id 5) x)))
@@ -337,16 +376,14 @@ cell_p eval(cell_p root, cell_p frame) {
 	(add5 10)
 	))
 */
-//手動でset!すると動くのでこれで上記の問題はこれでなんとかする
+// 手動でset!すると動くのでこれで上記の問題はこれでなんとかする
+// あとでマクロを作ることができればそれで解決する
 cell_p rewrite_define(cell_p);
 cell_p rewrite_define_aux(cell_p root) {
 	assert(is_same_string("lambda", car(root)));
-	puts("\nbefore");
-	print_cell(root);
-	puts("\n===");
 	cell_p body = cdr(cdr(root));
 	for(; body && !is_same_string("define", car(car(body))); body = cdr(body)) {
-		//car(body) = rewrite_define(car(body));
+		car(body) = rewrite_define(car(body));
 	}
 	if(!body) return root;
 	cell_p var = car_cdnr(car(body), 1);
@@ -356,9 +393,6 @@ cell_p rewrite_define_aux(cell_p root) {
 	new_lambda = rewrite_define(new_lambda);
 	car(body) = cons(new_lambda, cons(cons(str_to_atom("'"), cons(NULL, NULL)), NULL));
 	cdr(body) = NULL;
-	puts("\nafter");
-	print_cell(root);
-	puts("\n===");
 	return root;
 }
 
@@ -370,7 +404,7 @@ cell_p rewrite_define(cell_p root) {
 		return root;
 		case LIST: {
 			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
-				if(is_same_string(keyword[i], car(root)))
+				if(is_same_string(keyword[i], car(root))) {
 					switch(i) {
 						case K_lambda: {
 							return rewrite_define_aux(root);
@@ -381,6 +415,7 @@ cell_p rewrite_define(cell_p root) {
 							return NULL;
 						}
 					}
+				}
 			}
 			for(cell_p c = root; c; c = cdr(c)) {
 				car(c) = rewrite_define(car(c));
@@ -392,48 +427,116 @@ cell_p rewrite_define(cell_p root) {
 	}
 }
 
+// (lambda (args) bodies)
+/* (cont
+   (lambda (k0 args) to_cps(body1,
+   (lambda (k1) to_cps(body2,
+   (lambda (k2) to_cps(body...,
+   (lambda (kn) to_cps(bodyn, k0)))))))))
+   */
+
+#define make_lambda(args, bodies) (cons(str_to_atom("lambda"), cons(args, bodies)))
+#define app2(f, v) (cons(f, cons(v, NULL)))
+
+cell_p to_cps(cell_p, cell_p);
+cell_p bodies_to_cps(cell_p bodies, cell_p cont_var) {
+	if(!cdr(bodies)) return to_cps(car(bodies), cont_var);
+	cell_p new_var = gen_cps_var();
+	cell_p new_lambda = make_lambda(cons(new_var, NULL), cons(bodies_to_cps(cdr(bodies), cont_var), NULL));
+	return to_cps(car(bodies), new_lambda);
+}
+
+cell_p apply_to_cps_aux(cell_p exp, cell_p cont_vars, cell_p cont) {
+	cell_p body = cdr(exp)?apply_to_cps_aux(cdr(exp), cdr(cont_vars), cont):cont;
+	cell_p new_cont = make_lambda(cons(car(cont_vars), NULL), cons(body, NULL));
+	return to_cps(car(exp), new_cont);
+}
+cell_p apply_to_cps(cell_p root, cell_p cont) {
+	cell_p cont_vars = NULL;
+	for(cell_p e = root; e; e = cdr(e)) {
+		cont_vars = cons(gen_cps_var(), cont_vars);
+	}
+	cell_p apply_cont = cons(car(cont_vars), cons(cont, cdr(cont_vars)));
+	return apply_to_cps_aux(root, cont_vars, apply_cont);
+}
+
+cell_p predefined_to_cps(cell_p root, cell_p cont) {
+	cell_p cont_vars = NULL;
+	for(cell_p e = cdr(root); e; e = cdr(e)) {
+		cont_vars = cons(gen_cps_var(), cont_vars);
+	}
+	cell_p predefined_cont = cons(cont, cons(cons(car(root), cont_vars), NULL));
+	return apply_to_cps_aux(cdr(root), cont_vars, predefined_cont);
+}
+
 cell_p to_cps(cell_p root, cell_p cont) {
 	switch(cty(root)) {
 		case ATOM:
 		case NUMBER: {
 			// (cont v)
-			return cons(cont, root);
+			return cons(cont, cons(root, NULL));
 		} case LIST: {
 			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
-				if(is_same_string(keyword[i], car(root)))
+				if(is_same_string(keyword[i], car(root))) {
 					switch(i) {
 						case K_q:
 						case K_quote: {
 							// (quote v)
 							// (cont (quote v))
-							return cons(cont, root);
+							 return cons(cont, cons(root, NULL));
 						} case K_if: {
-							// (id cond t e)
+							// (if cond t e)
 							// ((λk0 .to_cps(cond, (λk1. (if k1 to_cps(t, k0) to_cps(e, k0))))) cont)
-							cell_p new_cont = NULL;
-							return to_cps(car_cdnr(root, 1), new_cont);
+							cell_p cond = car_cdnr(root, 1);
+							cell_p then_cls = car_cdnr(root, 2);
+							cell_p else_cls = car_cdnr(root, 3);
+							cell_p new_var0 = gen_cps_var();
+							cell_p new_var1 = gen_cps_var();
+							cell_p new_then_cls = to_cps(then_cls, new_var0);
+							cell_p new_else_cls = to_cps(else_cls, new_var0);
+							cell_p new_if = cons(str_to_atom("if"), cons(new_var1, cons(new_then_cls, cons(new_else_cls, NULL))));
+							cell_p new_cont = make_lambda(cons(new_var1, NULL), cons(new_if, NULL));
+							cell_p new_lambda = make_lambda(cons(new_var0, NULL), cons(to_cps(cond, new_cont), NULL));
+							return cons(new_lambda, cons(cont, NULL));
 						} case K_lambda: {
 							// (lambda (args) bodies)
-							/* (cont (lambda (k0 args)
-								to_cps(body1,
+							/* (cont
+							(lambda (k0 args) to_cps(body1,
 									(lambda (k1) to_cps(body2,
 										(lambda (k2) to_cps(body...,
-											(lambda(kn) to_cps(bodyn, k0)))))))))
+											(lambda (kn) to_cps(bodyn, k0)))))))))
 							*/
-							return NULL;
+							cell_p new_var = gen_cps_var();
+							cell_p bodies = cdr(cdr(root));
+							cell_p new_args = cons(new_var, car_cdnr(root, 1));
+							cell_p new_body = bodies_to_cps(bodies, new_var);
+							cell_p new_lambda = make_lambda(new_args, cons(new_body, NULL));
+							 return cons(cont, cons(new_lambda, NULL));
 						}
 						case K_define: {
-							// it should not be appeared
+							// this case should not be appeared
 							assert(false);
 							return NULL;
 						}
 						case K_set: {
 							//(set! v e)
 							// to_cps(e, (lambda (k0) (cont (set! v k0))))
-							return NULL;
+							cell_p var = car_cdnr(root, 1);
+							cell_p exp = car_cdnr(root, 2);
+							cell_p new_var = gen_cps_var();
+							cell_p body = cons(cont, cons(cons(str_to_atom("set!"), cons(var, cons(new_var, NULL))), NULL));
+							cell_p new_cont = make_lambda(cons(new_var, NULL), cons(body, NULL));
+							 return to_cps(exp, new_cont);
 						}
 					}
+				}
 			}
+			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
+				if(is_same_string(predefined[i], car(root))) {
+					return predefined_to_cps(root, cont);
+				}
+			}
+			return apply_to_cps(root, cont);
 		} default: {
 			assert(false);
 		}
@@ -441,7 +544,7 @@ cell_p to_cps(cell_p root, cell_p cont) {
 }
 
 int main(int argc, char **argv) {
-	FILE *fp = fopen(argv[1], "r");
+	FILE *fp = argv[1][0] == '-'?stdin:fopen(argv[1], "r");
 	for(size_t i = 0; i < sizeof(source); i++) {
 		source[i] = fgetc(fp);
 		if(source[i] == EOF) {
@@ -449,13 +552,20 @@ int main(int argc, char **argv) {
 			break;
 		}
 	}
+
 	cell_p ast = print_cell(parse());
+	puts("\n--- print_cell ---");
+	print_list(ast);
+	puts("\n--- print_list ---");
 	ast = rewrite_define(ast);
-	puts("\n---");
-	print_cell(ast);
-	//infer(ast);
-	puts("\n---");
+	print_list(ast);
+	puts("\n--- rewrite_define ---");
+	cell_p ast2 = to_cps(ast, make_lambda(cons(str_to_atom("x"), NULL), cons(str_to_atom("x"), NULL)));
+	print_list(ast2);
+	puts("\n--- to_cps ---");
 	print_cell(eval(ast, NULL));
-	puts("\n---");
+	puts("\n--- eval ast ---");
+	print_cell(eval(ast2, NULL));
+	puts("\n--- eval ast2 ---");
 }
 
