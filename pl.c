@@ -20,6 +20,28 @@ cell_p alloc_cell(cell_p car, cell_p cdr, cell_type t) {
 	return to(t, ret);
 }
 
+cell_p copy_cell(cell_p root, int depth) {
+	if(!root) return root;
+	switch(cty(root)) {
+		case ATOM:
+		case NUMBER: {
+			if(depth == 0) return root;
+			return alloc_cell(car(root), cdr(root), cty(root));
+		}
+		case LIST: {
+			if(depth == 0) return root;
+			return alloc_cell(copy_cell(car(root), depth > 0?depth - 1:depth), copy_cell(cdr(root), depth), LIST);
+		} default: {
+			assert(false);
+		}
+	}
+}
+
+cell_p append(cell_p a, cell_p b) {
+	if(!a) return b;
+	return cons(car(a), append(cdr(a), b));
+}
+
 cell_p car_cdnr(cell_p r, unsigned int n) {
 	if(n == 0) return car(r);
 	return car_cdnr(cdr(r), n - 1);
@@ -162,6 +184,7 @@ cell_p print_frame(cell_p frame) {
 		if(visited[i] == frame) return printf("%p", frame), NULL;
 	}
 	visited[idx++] = frame;
+	assert(idx < 65536);
 	printf("%p : ", frame);
 
 	printf("<");
@@ -352,6 +375,7 @@ cell_p eval(cell_p root, cell_p frame) {
 			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
 				if(is_same_string(predefined[i], evaled_car)) return predefined_funcs[i](root, frame);
 			}
+			if(!is(FUNC, evaled_car)) exit((print_list(car(root)), puts("\nexit")));
 			assert(is(FUNC, evaled_car));
 			return apply(evaled_car, cdr(root), frame);
 		} default: {
@@ -361,28 +385,82 @@ cell_p eval(cell_p root, cell_p frame) {
 }
 
 // closure 変換のため，
-// ((lambda (args) body) e1 ... en) すなわちlambda式を直接適用している部分式を
+// ((lambda (args) body) e1 ... en) すなわちlambda式が出現している部分式を
 // →(define clo_n (lambda (args) body)) (clo_n e1 ...  en) そのlambda式が出現している環境でdefineし直して，clo_nで参照する
 // ように変更する
 // このとき，((lambda (_ f) (f)) (if 0 (define a 1) (define a 2)) (lambda (x) a)) が正しく動くことが望ましい
 // ただしく動けば1が帰る
+// 現状↑のケースはrewrite_defineで死ぬがdefineはlambdaのbody直下にしか現れないと仮定して良い
 
 genvar(clo, "λ")
-cell_p rewrite_lambda_aux(cell_p root, cell_p *body) {
-	cell_p var = genvar_clo();
-	cell_p new_define = cons(str_to_atom("define"), cons(var, cons(car(root), NULL)));
-	//cdr(pre_body) = cons(new_define, cdr(pre_body));
-	//*body = cons(new_define, *body);
-	car(root) = var;
-	return root;
+
+cell_p rewrite_lambda(cell_p);
+cell_p rewrite_lambda_aux(cell_p);
+cell_p rewrite_lambda_list(cell_p root) {
+	if(!root) return cons(NULL, NULL);
+	cell_p new_list = rewrite_lambda_list(cdr(root));
+	cell_p new_car = rewrite_lambda_aux(car(root));
+	return cons(cons(car(new_car), car(new_list)), cdr(new_car)?append(cdr(new_car), cdr(new_list)):cdr(new_list));
+	
 }
 
+cell_p rewrite_lambda_aux(cell_p root) {
+	if(!root) return cons(root, NULL);
+	switch(cty(root)) {
+		case ATOM:
+		case NUMBER:
+		return cons(root, NULL);
+		case LIST: {
+			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
+				if(is_same_string(keyword[i], car(root))) {
+					switch(i) {
+						case K_lambda: {
+							cell_p args = car_cdnr(root, 1);
+							cell_p body = cdr(cdr(root));
+							cell_p new_body = rewrite_lambda(body);
+							cell_p var = genvar_clo();
+							cell_p new_define = cons(str_to_atom("define"), cons(var, cons(make_lambda(args, new_body), NULL)));
+							return cons(var, cons(new_define, NULL));
+						}
+						case K_set:
+						case K_define: {
+							cell_p exp = car_cdnr(root, 2);
+							if(is(LIST, exp) && is_same_string("lambda", car(exp))) return cons(root, NULL);
+							cell_p new_exp = rewrite_lambda_aux(exp);
+							car(cdr(cdr(root))) = car(new_exp);
+							return cons(root, cdr(new_exp));
+						}
+					}
+				}
+			}
+			return rewrite_lambda_list(root);
+		} default: {
+			assert(false);
+		}
+	}
+}
+
+cell_p rewrite_lambda(cell_p bodies) {
+	if(!bodies) return NULL;
+	cell_p new_bodies = rewrite_lambda(cdr(bodies));
+	puts("before ---");
+	print_list(car(bodies));
+	puts("\nafter ---");
+	cell_p new_body = rewrite_lambda_aux(car(bodies));
+	print_list(car(new_body));
+	puts("\nend ---");
+	cell_p ret = cdr(new_body)?append(cdr(new_body), cons(car(new_body), new_bodies)):cons(car(new_body), new_bodies);
+	puts("========");
+	print_list(ret);
+	puts("\n========");
+	return ret;
+}
 
 // cps変換のため，
 // (lambda (args) pre_bodies (define v e) post_bodies)
 // -> (lambda (args) pre_bodies (rewrite_define(<<<(lambda (v) (set! v e) post_bodies)>>>) '()))
 // のようにする．
-// これによって，ナイーブな後方参照や相互再帰ができなくなる．
+// これによって，ナイーブな前方参照や相互再帰ができなくなる．
 /*
 ((lambda ()
 	(define add5 (lambda (x) (_add (id 5) x)))
@@ -396,7 +474,7 @@ cell_p rewrite_define(cell_p);
 cell_p rewrite_define_aux(cell_p root) {
 	assert(is_same_string("lambda", car(root)));
 	cell_p body = cdr(cdr(root));
-	for(; body && !is_same_string("define", car(car(body))); body = cdr(body)) {
+	for(; body && (!is(LIST, car(body)) || (is(LIST, car(body)) && !is_same_string("define", car(car(body))))); body = cdr(body)) {
 		car(body) = rewrite_define(car(body));
 	}
 	if(!body) return root;
@@ -455,9 +533,11 @@ int main(int argc, char **argv) {
 	puts("\n--- print_cell ---");
 	print_list(ast);
 	puts("\n--- print_list ---");
-	rewrite_lambda_aux(car(car(body)), );
-	print_list(ast);
-	puts("\n--- rewrite_lambda_aux ---");
+	//cell_p copied_ast = make_lambda(NULL, rewrite_lambda(copy_cell(body, -1)));
+	//print_list(copied_ast);
+	//puts("\n--- rewrite_lambda ---");
+	//print_cell(eval(app2(copied_ast, nil), NULL));
+	//puts("\n--- eval copied_body ---");
 	ast = rewrite_define(ast);
 	print_list(ast);
 	puts("\n--- rewrite_define ---");
