@@ -2,6 +2,7 @@
 #define PL_H
 
 #include <stdalign.h>
+#include <stdint.h>
 
 typedef struct cell *cell_p;
 typedef struct cell {
@@ -28,8 +29,30 @@ typedef enum {
 cell_p alloc_cell(cell_p, cell_p, cell_type);
 cell_p car_cdnr(cell_p, unsigned int);
 
-cell_p get_from_frame(cell_p, cell_p);
+//cell_p get_from_frame(cell_p, cell_p);
 bool is_same_string(char const *, cell_p);
+
+#define make_lambda(args, bodies) (cons(str_to_atom("lambda"), cons(args, bodies)))
+#define app2(f, v) (cons(f, cons(v, NULL)))
+#define nil (app2(str_to_atom("'"), NULL))
+
+
+
+#define genvar(func, prefix) \
+cell_p genvar_##func() { \
+	static unsigned int n = 0; \
+	static char func##_vars[65536] = ""; \
+	static char *next_buffer = func##_vars; \
+	char var[32] = ""; \
+	size_t len = snprintf(var, sizeof(var), prefix "%x", n++); \
+	assert(len < sizeof(var)); \
+	strncpy(next_buffer, var, len + 1); /* for '\0' character */ \
+	cell_p ret = str_to_atom(next_buffer); \
+	next_buffer += len + 1; /* for '\0' */ \
+	return ret; \
+}
+
+
 
 #define keyword(s, t, n, exp) to_constant(K, t)
 #define predefined(s, t, n, exp) to_constant(P, t)
