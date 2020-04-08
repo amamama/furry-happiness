@@ -21,6 +21,13 @@
 */
 // 手動でset!すると動くのでこれで上記の問題はこれでなんとかする
 // あとでマクロを作ることができればそれで解決する
+/* ((lambda (id)
+	(define add5 (lambda (x) (_add (id 5) x)))
+	(define id (lambda (x) x))
+	(add5 10)
+	) (lambda (x) (_add x 3)))
+*/
+// これは書き換え前と後で結果が変わる．
 cell_p rewrite_define_aux(cell_p root) {
 	assert(is_same_string("lambda", car(root)));
 	cell_p body = cdr(cdr(root));

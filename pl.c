@@ -427,8 +427,7 @@ cell_p rewrite_lambda_aux(cell_p root) {
 							cell_p exp = car_cdnr(root, 2);
 							if(is(LIST, exp) && is_same_string("lambda", car(exp))) return cons(root, NULL);
 							cell_p new_exp = rewrite_lambda_aux(exp);
-							car(cdr(cdr(root))) = car(new_exp);
-							return cons(root, cdr(new_exp));
+							return cons(app3(str_to_atom("define"), car_cdnr(root, 1), car(new_exp)), cdr(new_exp));
 						}
 					}
 				}
@@ -459,6 +458,7 @@ cell_p rewrite_lambda(cell_p bodies) {
 // closure 変換をする
 // (lambda () (define a 0) ((lambda (_ f) (f)) (if 0 (set! a 1) (set! a 2)) (lambda () a))) が動かなくなる？
 // 今まではaは外部環境のaを参照しに行っていたため，set!で代入した後を正しく参照できていたが，変換を行うと値渡しでlistを作成するので，set!で代入してもクロージャのリストの方にはその変更は伝わらない
+// 回避するには「その場で」listを作成する必要がある．→多くの場面でリストが2回出てきてしまう
 
 
 cell_p substitute_closure(cell_p atom, cell_p sub_list) {
@@ -477,14 +477,21 @@ bool index_of_vars(cell_p atom, cell_p free_vars) {
 	return 1 + index_of_vars(atom, cdr(free_vars));
 }
 
+cell_p collect_free_vars(cell_p lambda, cell_p free_vars) {
+	cell_p args = car_cdnr(lambda, 1);
+}
+
+cell_p lambda_to_closureless(cell_p root, cell_p free_vars, cell_p clo_subs) {
+}
+
 cell_p to_closureless(cell_p root, cell_p free_vars, cell_p clo_subs) {
 	if(!root) return root;
 	switch(cty(root)) {
 		case ATOM: {
 			cell_p sub = substitute_closure(root, clo_subs);
-			if(sub) return cdr(sub);
+			if(sub) return to_closureless(cdr(sub), free_vars, clo_subs);
 			if(!is_free_vars(root, free_vars)) return root;
-			return app3(str_to_atom("get-from-index"), str_to_atom("self"), int_to_atom(index_of_vars(root, free_vars)));
+			return app3(str_to_atom("clo-ref"), str_to_atom("self"), int_to_atom(index_of_vars(root, free_vars)));
 		}
 		case NUMBER: {
 			return root;
@@ -508,13 +515,16 @@ cell_p to_closureless(cell_p root, cell_p free_vars, cell_p clo_subs) {
 
 						}
 						case K_lambda: {
-							//return lambda_to_closureless(root, free_vars, clo_subs);
+							//this case should not be appeared
+							assert(false);
 						}
 						case K_define: {
-							//return lambda_to_closureless(root, free_vars, clo_subs);
+							cell_p exp = car_cdnr(root, 2);
+							if(!is(LIST, exp) || !is_same_string("lambda", car(exp))) return app3(str_to_atom("define"), car_cdnr(root, 1), to_closureless(exp, free_vars, clo_subs));
+							cell_p used_free_vars = collect_free_vars(root, free_vars);
+							return lambda_to_closureless(root, used_free_vars, clo_subs);
 						}
 						case K_set: {
-							//return lambda_to_closureless(root, free_vars, clo_subs);
 						}
 						default: {
 							assert(false);
@@ -530,7 +540,8 @@ cell_p to_closureless(cell_p root, cell_p free_vars, cell_p clo_subs) {
 					return root;
 				}
 			}
-			for(cell_p c = root; c; c = cdr(c)) {
+			car(root) = app3(str_to_atom("clo-ref"), to_closureless(car(root), free_vars, clo_subs), int_to_atom(0));
+			for(cell_p c = cdr(root); c; c = cdr(c)) {
 				car(c) = to_closureless(car(c), free_vars, clo_subs);
 			}
 			return root;
@@ -552,9 +563,11 @@ int main(int argc, char **argv) {
 
 	cell_p body = parse_body();
 	cell_p ast = print_cell(make_lambda(NULL, body));
-	puts("\n--- print_cell ---");
+	puts("\n--- print_cell ast ---");
 	print_list(ast);
-	puts("\n--- print_list ---");
+	puts("\n--- print_list ast ---");
+	print_list(eval(app2(ast, nil), NULL));
+	puts("\n--- eval ast ---");
 	cell_p copied_ast = make_lambda(NULL, rewrite_lambda(copy_cell(body, -1)));
 	print_list(copied_ast);
 	puts("\n--- rewrite_lambda ---");
@@ -562,12 +575,12 @@ int main(int argc, char **argv) {
 	puts("\n--- eval copied_body ---");
 	ast = rewrite_define(ast);
 	print_list(ast);
-	puts("\n--- rewrite_define ---");
-	cell_p ast2 = to_cps(app2(ast, nil), make_lambda(cons(str_to_atom("x"), NULL), cons(str_to_atom("x"), NULL)));
-	print_list(ast2);
-	puts("\n--- to_cps ---");
+	puts("\n--- rewrite_define ast ---");
 	print_cell(eval(app2(ast, nil), NULL));
 	puts("\n--- eval ast ---");
+	cell_p ast2 = to_cps(app2(ast, nil), make_lambda(cons(str_to_atom("x"), NULL), cons(str_to_atom("x"), NULL)));
+	print_list(ast2);
+	puts("\n--- to_cps ast2 ---");
 	print_cell(eval(ast2, NULL));
 	puts("\n--- eval ast2 ---");
 }
