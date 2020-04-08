@@ -7,6 +7,68 @@
 #include "pl.h"
 #include "cps.h"
 
+// cps変換のため，
+// (lambda (args) pre_bodies (define v e) post_bodies)
+// -> (lambda (args) pre_bodies (rewrite_define(<<<(lambda (v) (set! v e) post_bodies)>>>) '()))
+// のようにする．
+// これによって，ナイーブな前方参照や相互再帰ができなくなる．
+/*
+((lambda ()
+	(define add5 (lambda (x) (_add (id 5) x)))
+	(define id (lambda (x) x))
+	(add5 10)
+	))
+*/
+// 手動でset!すると動くのでこれで上記の問題はこれでなんとかする
+// あとでマクロを作ることができればそれで解決する
+cell_p rewrite_define_aux(cell_p root) {
+	assert(is_same_string("lambda", car(root)));
+	cell_p body = cdr(cdr(root));
+	for(; body && (!is(LIST, car(body)) || (is(LIST, car(body)) && !is_same_string("define", car(car(body))))); body = cdr(body)) {
+		car(body) = rewrite_define(car(body));
+	}
+	if(!body) return root;
+	cell_p var = car_cdnr(car(body), 1);
+	cell_p exp = rewrite_define(car_cdnr(car(body), 2));
+	cell_p set_exp = app3(str_to_atom("set!"), var, exp);
+	cell_p new_lambda = cons(car(root), cons(cons(var, NULL), cons(set_exp, cdr(body))));
+	new_lambda = rewrite_define(new_lambda);
+	car(body) = app2(new_lambda, nil);
+	cdr(body) = NULL;
+	return root;
+}
+
+cell_p rewrite_define(cell_p root) {
+	if(!root) return root;
+	switch(cty(root)) {
+		case ATOM:
+		case NUMBER:
+		return root;
+		case LIST: {
+			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
+				if(is_same_string(keyword[i], car(root))) {
+					switch(i) {
+						case K_lambda: {
+							return rewrite_define_aux(root);
+						}
+						case K_define: {
+							// this case should not be executed
+							assert(false);
+							return NULL;
+						}
+					}
+				}
+			}
+			for(cell_p c = root; c; c = cdr(c)) {
+				car(c) = rewrite_define(car(c));
+			}
+			return root;
+		} default: {
+			assert(false);
+		}
+	}
+}
+
 genvar(cps, "継続")
 
 #ifndef CPS2
@@ -19,7 +81,6 @@ genvar(cps, "継続")
    (lambda (_) to_cps(bodyn, k0)))))))))
    */
 
-cell_p to_cps(cell_p, cell_p);
 cell_p bodies_to_cps(cell_p bodies, cell_p cont_var) {
 	if(!cdr(bodies)) return to_cps(car(bodies), cont_var);
 	cell_p new_lambda = make_lambda(cons(str_to_atom("_"), NULL), cons(bodies_to_cps(cdr(bodies), cont_var), NULL));

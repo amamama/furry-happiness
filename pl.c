@@ -419,7 +419,7 @@ cell_p rewrite_lambda_aux(cell_p root) {
 							cell_p body = cdr(cdr(root));
 							cell_p new_body = rewrite_lambda(body);
 							cell_p var = genvar_clo();
-							cell_p new_define = cons(str_to_atom("define"), cons(var, cons(make_lambda(args, new_body), NULL)));
+							cell_p new_define = app3(str_to_atom("define"), var, make_lambda(args, new_body));
 							return cons(var, cons(new_define, NULL));
 						}
 						case K_set:
@@ -443,74 +443,95 @@ cell_p rewrite_lambda_aux(cell_p root) {
 cell_p rewrite_lambda(cell_p bodies) {
 	if(!bodies) return NULL;
 	cell_p new_bodies = rewrite_lambda(cdr(bodies));
-	puts("before ---");
-	print_list(car(bodies));
-	puts("\nafter ---");
+	//puts("before ---");
+	//print_list(car(bodies));
+	//puts("\nafter ---");
 	cell_p new_body = rewrite_lambda_aux(car(bodies));
-	print_list(car(new_body));
-	puts("\nend ---");
+	//print_list(car(new_body));
+	//puts("\nend ---");
 	cell_p ret = cdr(new_body)?append(cdr(new_body), cons(car(new_body), new_bodies)):cons(car(new_body), new_bodies);
-	puts("========");
-	print_list(ret);
-	puts("\n========");
+	//puts("========");
+	//print_list(ret);
+	//puts("\n========");
 	return ret;
 }
 
-// cps変換のため，
-// (lambda (args) pre_bodies (define v e) post_bodies)
-// -> (lambda (args) pre_bodies (rewrite_define(<<<(lambda (v) (set! v e) post_bodies)>>>) '()))
-// のようにする．
-// これによって，ナイーブな前方参照や相互再帰ができなくなる．
-/*
-((lambda ()
-	(define add5 (lambda (x) (_add (id 5) x)))
-	(define id (lambda (x) x))
-	(add5 10)
-	))
-*/
-// 手動でset!すると動くのでこれで上記の問題はこれでなんとかする
-// あとでマクロを作ることができればそれで解決する
-cell_p rewrite_define(cell_p);
-cell_p rewrite_define_aux(cell_p root) {
-	assert(is_same_string("lambda", car(root)));
-	cell_p body = cdr(cdr(root));
-	for(; body && (!is(LIST, car(body)) || (is(LIST, car(body)) && !is_same_string("define", car(car(body))))); body = cdr(body)) {
-		car(body) = rewrite_define(car(body));
-	}
-	if(!body) return root;
-	cell_p var = car_cdnr(car(body), 1);
-	cell_p exp = rewrite_define(car_cdnr(car(body), 2));
-	cell_p set_exp = cons(str_to_atom("set!"), cons(var, cons(exp, NULL)));
-	cell_p new_lambda = cons(car(root), cons(cons(var, NULL), cons(set_exp, cdr(body))));
-	new_lambda = rewrite_define(new_lambda);
-	car(body) = cons(new_lambda, cons(cons(str_to_atom("'"), cons(NULL, NULL)), NULL));
-	cdr(body) = NULL;
-	return root;
+// closure 変換をする
+// (lambda () (define a 0) ((lambda (_ f) (f)) (if 0 (set! a 1) (set! a 2)) (lambda () a))) が動かなくなる？
+// 今まではaは外部環境のaを参照しに行っていたため，set!で代入した後を正しく参照できていたが，変換を行うと値渡しでlistを作成するので，set!で代入してもクロージャのリストの方にはその変更は伝わらない
+
+
+cell_p substitute_closure(cell_p atom, cell_p sub_list) {
+	return get_from_env(atom, sub_list);
 }
 
-cell_p rewrite_define(cell_p root) {
+bool is_free_vars(cell_p atom, cell_p free_vars) {
+	if(!free_vars) return false;
+	if(is_same_atom(atom, car(free_vars))) return true;
+	return is_free_vars(atom, cdr(free_vars));
+}
+
+bool index_of_vars(cell_p atom, cell_p free_vars) {
+	assert(free_vars);
+	if(is_same_atom(atom, car(free_vars))) return 0;
+	return 1 + index_of_vars(atom, cdr(free_vars));
+}
+
+cell_p to_closureless(cell_p root, cell_p free_vars, cell_p clo_subs) {
 	if(!root) return root;
 	switch(cty(root)) {
-		case ATOM:
-		case NUMBER:
-		return root;
+		case ATOM: {
+			cell_p sub = substitute_closure(root, clo_subs);
+			if(sub) return cdr(sub);
+			if(!is_free_vars(root, free_vars)) return root;
+			return app3(str_to_atom("get-from-index"), str_to_atom("self"), int_to_atom(index_of_vars(root, free_vars)));
+		}
+		case NUMBER: {
+			return root;
+		}
 		case LIST: {
 			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
 				if(is_same_string(keyword[i], car(root))) {
 					switch(i) {
+						case K_q:
+						case K_quote:
+						return root;
+						case K_if: {
+							cell_p cond = car_cdnr(root, 1);
+							cell_p t = car_cdnr(root, 2);
+							cell_p f = car_cdnr(root, 3);
+							cell_p new_cond = to_closureless(cond, free_vars, clo_subs);
+							cell_p new_t = to_closureless(t, free_vars, clo_subs);
+							cell_p new_f = to_closureless(f, free_vars, clo_subs);
+							cell_p new_if = app4(str_to_atom("if"), new_cond, new_t, new_f);
+							return new_if;
+
+						}
 						case K_lambda: {
-							return rewrite_define_aux(root);
+							//return lambda_to_closureless(root, free_vars, clo_subs);
 						}
 						case K_define: {
-							// this case should not be executed
+							//return lambda_to_closureless(root, free_vars, clo_subs);
+						}
+						case K_set: {
+							//return lambda_to_closureless(root, free_vars, clo_subs);
+						}
+						default: {
 							assert(false);
-							return NULL;
 						}
 					}
 				}
 			}
+			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
+				if(is_same_string(predefined[i], car(root))) {
+					for(cell_p c = cdr(root); c; c = cdr(c)) {
+						car(c) = to_closureless(car(c), free_vars, clo_subs);
+					}
+					return root;
+				}
+			}
 			for(cell_p c = root; c; c = cdr(c)) {
-				car(c) = rewrite_define(car(c));
+				car(c) = to_closureless(car(c), free_vars, clo_subs);
 			}
 			return root;
 		} default: {
@@ -518,6 +539,7 @@ cell_p rewrite_define(cell_p root) {
 		}
 	}
 }
+
 int main(int argc, char **argv) {
 	FILE *fp = argv[1][0] == '-'?stdin:fopen(argv[1], "r");
 	for(size_t i = 0; i < sizeof(source); i++) {
@@ -533,11 +555,11 @@ int main(int argc, char **argv) {
 	puts("\n--- print_cell ---");
 	print_list(ast);
 	puts("\n--- print_list ---");
-	//cell_p copied_ast = make_lambda(NULL, rewrite_lambda(copy_cell(body, -1)));
-	//print_list(copied_ast);
-	//puts("\n--- rewrite_lambda ---");
-	//print_cell(eval(app2(copied_ast, nil), NULL));
-	//puts("\n--- eval copied_body ---");
+	cell_p copied_ast = make_lambda(NULL, rewrite_lambda(copy_cell(body, -1)));
+	print_list(copied_ast);
+	puts("\n--- rewrite_lambda ---");
+	print_cell(eval(app2(copied_ast, nil), NULL));
+	puts("\n--- eval copied_body ---");
 	ast = rewrite_define(ast);
 	print_list(ast);
 	puts("\n--- rewrite_define ---");
