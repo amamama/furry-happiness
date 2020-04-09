@@ -548,10 +548,10 @@ cell_p collect_free_vars(cell_p lambda) {
 	return ret;
 }
 
-cell_p lambda_to_closureless(cell_p lambda, cell_p clo_subs) {
+cell_p lambda_to_closure(cell_p lambda, cell_p clo_subs) {
 }
 
-cell_p to_closureless(cell_p root) {
+cell_p to_closure(cell_p root) {
 	if(!root) return NULL;
 	switch(cty(root)) {
 		case ATOM: {
