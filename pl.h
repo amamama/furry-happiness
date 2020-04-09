@@ -27,8 +27,6 @@ typedef enum {
 #define str_to_atom(str) (alloc_cell((cell_p)str, (cell_p)(uintptr_t)strlen(str), ATOM))
 #define int_to_atom(num) (alloc_cell((cell_p)(intptr_t)num, NULL, NUMBER))
 
-cell_p alloc_cell(cell_p, cell_p, cell_type);
-cell_p car_cdnr(cell_p, unsigned int);
 
 bool is_same_string(char const *, cell_p);
 bool is_member(cell_p, cell_p);
@@ -72,7 +70,7 @@ cell_p genvar_##func() { \
 
 #define keyword(s, t, n, exp)
 #define predefined(s, t, n, exp)
-#define begin(k, K) extern const char *k[];
+#define begin(k, K) extern const char *k[]; extern bool (*is_##k[])(cell_p);
 #define end(k, K)
 #include "def.h"
 #undef keyword

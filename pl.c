@@ -1,6 +1,5 @@
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
 #include <ctype.h>
@@ -10,42 +9,8 @@
 
 
 #include "pl.h"
-#include "uf.h"
+#include "util.h"
 #include "cps.h"
-
-cell_p alloc_cell(cell_p car, cell_p cdr, cell_type t) {
-	cell_p ret = malloc(sizeof(cell));
-	ret->car = car;
-	ret->cdr = cdr;
-	return to(t, ret);
-}
-
-cell_p copy_cell(cell_p root, int depth) {
-	if(!root) return root;
-	switch(cty(root)) {
-		case ATOM:
-		case NUMBER: {
-			if(depth == 0) return root;
-			return alloc_cell(car(root), cdr(root), cty(root));
-		}
-		case LIST: {
-			if(depth == 0) return root;
-			return alloc_cell(copy_cell(car(root), depth > 0?depth - 1:depth), copy_cell(cdr(root), depth), LIST);
-		} default: {
-			assert(false);
-		}
-	}
-}
-
-cell_p append(cell_p a, cell_p b) {
-	if(!a) return b;
-	return cons(car(a), append(cdr(a), b));
-}
-
-cell_p car_cdnr(cell_p r, unsigned int n) {
-	if(n == 0) return car(r);
-	return car_cdnr(cdr(r), n - 1);
-}
 
 #define keyword(s, t, n, exp) to_lit(s)
 #define predefined(s, t, n, exp) to_lit(s)
@@ -150,7 +115,7 @@ cell_p parse(void) {
 			return alloc_cell((cell_p)(source + tok.pos), (cell_p)(uintptr_t)tok.len, ATOM);
 		} default: {
 				err("parse failed: pos: %zd, %*s", tok.pos, (int)tok.len, source + tok.pos);
-				exit(EXIT_FAILURE);
+				assert(false);
 		}
 	}
 }
@@ -346,6 +311,30 @@ cell_p make_new_frame(cell_p func, cell_p args, cell_p frame) {
 #undef end
 #undef to_funcname
 
+#define keyword(s, t, n, exp) def_func(t, s)
+#define predefined(s, t, n, exp) def_func(t, s)
+#define begin(k, K)
+#define end(k, K)
+#define def_func(t, s) bool is_##t(cell_p root) { return is(LIST, root) && is_same_string(s, car(root)); }
+#include "def.h"
+#undef keyword
+#undef predefined
+#undef begin
+#undef end
+#undef def_func
+
+#define keyword(s, t, n, exp) to_funcname(t)
+#define predefined(s, t, n, exp) to_funcname(t)
+#define begin(k, K) bool (*is_##k[])(cell_p) = {
+#define end(k, K) };
+#define to_funcname(t) is_##t,
+#include "def.h"
+#undef keyword
+#undef predefined
+#undef begin
+#undef end
+#undef to_funcname
+
 cell_p apply(cell_p func, cell_p args, cell_p frame) {
 	cell_p new_frame = cons(NULL, make_new_frame(func, args, frame));
 	cell_p body = cdr(cdr(car(func)));
@@ -368,13 +357,12 @@ cell_p eval(cell_p root, cell_p frame) {
 			return root;
 		} case LIST: {
 			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
-				if(is_same_string(keyword[i], car(root))) return keyword_funcs[i](root, frame);
+				if(is_keyword[i](root)) return keyword_funcs[i](root, frame);
 			}
 			cell_p evaled_car = eval(car(root), frame);
 			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
 				if(is_same_string(predefined[i], evaled_car)) return predefined_funcs[i](root, frame);
 			}
-			if(!is(FUNC, evaled_car)) exit((print_list(car(root)), puts("\nexit")));
 			assert(is(FUNC, evaled_car));
 			return apply(evaled_car, cdr(root), frame);
 		} default: {
@@ -391,16 +379,12 @@ cell_p eval(cell_p root, cell_p frame) {
 // ただしく動けば1が帰る
 // 現状↑のケースはrewrite_defineで死ぬがdefineはlambdaのbody直下にしか現れないと仮定して良い
 
-bool is_lambda(cell_p root) {
-	return is(LIST, root) && is_same_string("lambda", car(root));
-}
-
 bool is_value(cell_p root) {
 	return is(ATOM, root)
 		|| is(NUMBER, root)
 		|| is_lambda(root)
-		|| (is(LIST, root) && (is_same_string("'", car(root))
-							|| is_same_string("quote", car(root))));
+		|| is_q(root)
+		|| is_quote(root);
 }
 
 genvar(clo, "λ")
@@ -422,7 +406,7 @@ cell_p rewrite_lambda_aux(cell_p root) {
 		return cons(root, NULL);
 		case LIST: {
 			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
-				if(is_same_string(keyword[i], car(root))) {
+				if(is_keyword[i](root)) {
 					switch(i) {
 						case K_lambda: {
 							cell_p args = car_cdnr(root, 1);
@@ -509,7 +493,7 @@ cell_p collect_free_vars_aux(cell_p root, cell_p bound_vars) {
 			if(is_value(root)) return NULL;
 			cell_p start_cell = root;
 			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
-				if(is_same_string(keyword[i], car(root))) {
+				if(is_keyword[i](root)) {
 					if(i == K_define) {
 						start_cell = cdr(cdr(root));
 					} else {
@@ -517,10 +501,8 @@ cell_p collect_free_vars_aux(cell_p root, cell_p bound_vars) {
 					}
 				}
 			}
-			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
-				if(is_same_string(predefined[i], car(root))) {
-					start_cell = cdr(root);
-				}
+			if(in_predefined(root)) {
+				start_cell = cdr(root);
 			}
 			cell_p ret = NULL;
 			for(cell_p c = start_cell; c; c = cdr(c)) {
@@ -540,7 +522,7 @@ cell_p collect_free_vars(cell_p lambda) {
 	for(cell_p bodies = cdr(cdr(lambda)); bodies; bodies = cdr(bodies)) {
 		cell_p body = car(bodies);
 		ret = union_list(ret, collect_free_vars_aux(body, args));
-		if(is(LIST, body) && is_same_string("define", car(body))) args = cons(car_cdnr(body, 1), args);
+		if(is_define(body)) args = cons(car_cdnr(body, 1), args);
 	}
 	return ret;
 }
@@ -548,7 +530,8 @@ cell_p collect_free_vars(cell_p lambda) {
 cell_p lambda_to_closureless(cell_p lambda, cell_p clo_subs) {
 }
 
-cell_p to_closureless(cell_p root, cell_p bound_vars, cell_p free_vars, cell_p clo_subs) {
+cell_p to_closureless(cell_p root) {
+
 }
 
 int main(int argc, char **argv) {
@@ -572,7 +555,7 @@ int main(int argc, char **argv) {
 	puts("\n--- print_list collect_free_vars(ast) ---");
 	print_list(eval(cons(ast, NULL), global_frame));
 	puts("\n--- eval ast ---");
-	cell_p copied_ast = make_lambda(NULL, rewrite_lambda(copy_cell(body, -1)));
+	cell_p copied_ast = make_lambda(NULL, rewrite_lambda(copy(body, -1)));
 	print_list(copied_ast);
 	puts("\n--- rewrite_lambda ---");
 	print_cell(eval(cons(copied_ast, NULL), global_frame));

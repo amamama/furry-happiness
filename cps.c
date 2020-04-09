@@ -36,7 +36,7 @@
 (shadow a0 a1 a2 a3)
 */
 cell_p rewrite_define_aux(cell_p root, cell_p outer_args) {
-	assert(is_same_string("lambda", car(root)));
+	assert(is_lambda(root));
 	cell_p args = union_list(car_cdnr(root, 1), outer_args);
 	cell_p body = cdr(cdr(root));
 	for(; body && (!is(LIST, car(body)) || (is(LIST, car(body)) && !is_same_string("define", car(car(body))))); body = cdr(body)) {
@@ -61,7 +61,7 @@ cell_p rewrite_define(cell_p root, cell_p args) {
 		return root;
 		case LIST: {
 			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
-				if(is_same_string(keyword[i], car(root))) {
+				if(is_keyword[i](root)) {
 					switch(i) {
 						case K_lambda: {
 							return rewrite_define_aux(root, args);
@@ -134,7 +134,7 @@ cell_p to_cps(cell_p root, cell_p cont) {
 			return cons(cont, cons(root, NULL));
 		} case LIST: {
 			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
-				if(is_same_string(keyword[i], car(root))) {
+				if(is_keyword[i](root)) {
 					switch(i) {
 						case K_q:
 						case K_quote: {
@@ -189,7 +189,7 @@ cell_p to_cps(cell_p root, cell_p cont) {
 				}
 			}
 			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
-				if(is_same_string(predefined[i], car(root))) {
+				if(is_predefined[i](root)) {
 					return predefined_to_cps(root, cont);
 				}
 			}
@@ -237,7 +237,7 @@ cell_p to_cps2(cell_p root) {
 			return make_lambda(cons(k, NULL), cons(app2(k, root), NULL));
 		} case LIST: {
 			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
-				if(is_same_string(keyword[i], car(root))) {
+				if(is_keyword[i](root)) {
 					switch(i) {
 						case K_q:
 						case K_quote: {
@@ -284,7 +284,7 @@ cell_p to_cps2(cell_p root) {
 				}
 			}
 			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
-				if(is_same_string(predefined[i], car(root))) {
+				if(is_predefined[i](root)) {
 					cell_p k = genvar_cps();
 					return make_lambda(cons(k, NULL), cons(predefined_to_cps2(root, k), NULL));
 				}

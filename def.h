@@ -22,6 +22,7 @@ keyword("quote", quote, 0,
 keyword("if", if, 0,
 	e(arg(1))?e(arg(2)):e(arg(3))
 )
+
 keyword("lambda", lambda, 0,
 	alloc_cell(root, frame, FUNC)
 )
@@ -48,8 +49,8 @@ predefined("eq", eq, 2, is_same_atom(a(1), a(2)) || a(1) == a(2)?cons(NULL, NULL
 predefined("set-car!", set_car, 2, car(a(1)) = a(2))
 predefined("set-cdr!", set_cdr, 2, cdr(a(1)) = a(2))
 predefined("cons", cons, 2, cons(a(1), a(2))) // 'a -> list 'a -> list 'a
-predefined("car", car, 1, !a(1)||!is(LIST, a(1))?(print_cell(root), puts(" error car"), (a(1)?print_cell(a(1)), print_frame(frame):0), exit(1), NULL):car(a(1))) // list 'a -> 'a
-predefined("cdr", cdr, 1, !a(1)||!is(LIST, a(1))?(print_cell(root), puts(" error cdr"), (a(1)?print_cell(a(1)), print_frame(frame):0), exit(1), NULL):cdr(a(1))) // list 'a -> list 'a
+predefined("car", car, 1, car(a(1))) // list 'a -> 'a
+predefined("cdr", cdr, 1, cdr(a(1))) // list 'a -> list 'a
 predefined("pair", pair, 2, cons(a(1), a(2))) //'a -> 'b -> pair 'a 'b
 predefined("fst", fst, 1, car(a(1))) // pair 'a 'b -> 'a
 predefined("snd", snd, 1, cdr(a(1))) // pair 'a 'b -> 'b
