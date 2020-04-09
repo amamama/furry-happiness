@@ -458,10 +458,11 @@ cell_p rewrite_lambda(cell_p bodies) {
  (define fact3 (fact 3))
  (fact fact3)
 
- (define fact (lambda (self n) (if (eq n 0) 1 (_mul n (clo-ref self 1) (_sub n 1)))))
- (define fact3 (clo-ref '(fact fact) '(fact fact) 0))
- ((clo-ref '(fact fact) 0) fact3)
+ (define fact (lambda (self n) (if (eq n 0) 1 (_mul n (clo-ref (clo-ref self 1) 0) (clo-ref self 1) (_sub n 1)))))
+ (define fact3 ((clo-ref '(fact '(fact '(fact ...))) '(fact '(fact '(fact ...))) 0) 3))
+ ((clo-ref '(fact '(fact '(fact ...))) 0) fact3)
 */
+// 再帰して死ぬ
 
 bool is_member(cell_p atom, cell_p list) {
 	if(!list) return false;
@@ -531,7 +532,25 @@ cell_p lambda_to_closureless(cell_p lambda, cell_p clo_subs) {
 }
 
 cell_p to_closureless(cell_p root) {
-
+	if(!root) return NULL;
+	switch(cty(root)) {
+		case ATOM: {
+		}
+		case NUMBER: {
+		}
+		case LIST: {
+			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
+				if(is_keyword[i](root)) {
+				}
+			}
+			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
+				if(is_predefined[i](root)) {
+				}
+			}
+		} default: {
+			assert(false);
+		}
+	}
 }
 
 int main(int argc, char **argv) {
