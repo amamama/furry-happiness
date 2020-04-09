@@ -31,6 +31,8 @@ cell_p alloc_cell(cell_p, cell_p, cell_type);
 cell_p car_cdnr(cell_p, unsigned int);
 
 bool is_same_string(char const *, cell_p);
+bool is_member(cell_p, cell_p);
+cell_p union_list(cell_p, cell_p);
 
 #define make_lambda(args, bodies) (cons(str_to_atom("lambda"), cons(args, bodies)))
 #define app2(f, x) (cons(f, cons(x, NULL)))

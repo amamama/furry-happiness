@@ -28,24 +28,32 @@
 	) (lambda (x) (_add x 3)))
 */
 // これは書き換え前と後で結果が変わる．
-cell_p rewrite_define_aux(cell_p root) {
+//
+// 変数のシャドウイングで落ちる
+/* 
+
+(define shadow (lambda (a0 a1 a2 a3) (define a0 (_add a0 a1)) (define a01 (_add a0 a1)) (_add a01 a2)))
+(shadow a0 a1 a2 a3)
+*/
+cell_p rewrite_define_aux(cell_p root, cell_p outer_args) {
 	assert(is_same_string("lambda", car(root)));
+	cell_p args = union_list(car_cdnr(root, 1), outer_args);
 	cell_p body = cdr(cdr(root));
 	for(; body && (!is(LIST, car(body)) || (is(LIST, car(body)) && !is_same_string("define", car(car(body))))); body = cdr(body)) {
-		car(body) = rewrite_define(car(body));
+		car(body) = rewrite_define(car(body), args);
 	}
 	if(!body) return root;
 	cell_p var = car_cdnr(car(body), 1);
-	cell_p exp = rewrite_define(car_cdnr(car(body), 2));
+	cell_p exp = car_cdnr(car(body), 2);
 	cell_p set_exp = app3(str_to_atom("set!"), var, exp);
 	cell_p new_lambda = cons(car(root), cons(cons(var, NULL), cons(set_exp, cdr(body))));
-	new_lambda = rewrite_define(new_lambda);
-	car(body) = app2(new_lambda, nil);
+	new_lambda = rewrite_define(new_lambda, args);
+	car(body) = app2(new_lambda, is_member(var, args)?var:nil);
 	cdr(body) = NULL;
 	return root;
 }
 
-cell_p rewrite_define(cell_p root) {
+cell_p rewrite_define(cell_p root, cell_p args) {
 	if(!root) return root;
 	switch(cty(root)) {
 		case ATOM:
@@ -56,7 +64,7 @@ cell_p rewrite_define(cell_p root) {
 				if(is_same_string(keyword[i], car(root))) {
 					switch(i) {
 						case K_lambda: {
-							return rewrite_define_aux(root);
+							return rewrite_define_aux(root, args);
 						}
 						case K_define: {
 							// this case should not be executed
@@ -67,7 +75,7 @@ cell_p rewrite_define(cell_p root) {
 				}
 			}
 			for(cell_p c = root; c; c = cdr(c)) {
-				car(c) = rewrite_define(car(c));
+				car(c) = rewrite_define(car(c), args);
 			}
 			return root;
 		} default: {
