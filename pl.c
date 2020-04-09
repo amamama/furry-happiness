@@ -283,6 +283,24 @@ bool is_same_atom(cell_p a, cell_p b) {
 	}
 }
 
+bool is_lambda(cell_p root) {
+	return is(LIST, root) && is_same_string("lambda", car(root));
+}
+
+bool is_value(cell_p root) {
+	return is(ATOM, root)
+		|| is(NUMBER, root)
+		|| is_lambda(root)
+		|| (is(LIST, root) && (is_same_string("'", car(root))
+							|| is_same_string("quote", car(root))));
+}
+
+bool is_member(cell_p atom, cell_p list) {
+	if(!list) return false;
+	if(is_same_atom(atom, car(list))) return true;
+	return is_member(atom, cdr(list));
+}
+
 cell_p get_from_env(cell_p atom, cell_p env) {
 	if(!env) return NULL;
 	if(is_same_atom(atom, car(car(env)))) return car(env);
@@ -295,7 +313,6 @@ cell_p get_from_frame(cell_p atom, cell_p frame) {
 	if(!obj) return get_from_frame(atom, cdr(frame));
 	return obj;
 }
-
 
 cell_p eval(cell_p, cell_p);
 cell_p eval_args(cell_p args, cell_p frame) {
@@ -401,7 +418,6 @@ cell_p rewrite_lambda_list(cell_p root) {
 	cell_p new_list = rewrite_lambda_list(cdr(root));
 	cell_p new_car = rewrite_lambda_aux(car(root));
 	return cons(cons(car(new_car), car(new_list)), cdr(new_car)?append(cdr(new_car), cdr(new_list)):cdr(new_list));
-	
 }
 
 cell_p rewrite_lambda_aux(cell_p root) {
@@ -425,7 +441,7 @@ cell_p rewrite_lambda_aux(cell_p root) {
 						case K_set:
 						case K_define: {
 							cell_p exp = car_cdnr(root, 2);
-							if(is(LIST, exp) && is_same_string("lambda", car(exp))) return cons(root, NULL);
+							if(is_lambda(exp)) return cons(root, NULL);
 							cell_p new_exp = rewrite_lambda_aux(exp);
 							return cons(app3(str_to_atom("define"), car_cdnr(root, 1), car(new_exp)), cdr(new_exp));
 						}
@@ -459,16 +475,18 @@ cell_p rewrite_lambda(cell_p bodies) {
 // (lambda () (define a 0) ((lambda (_ f) (f)) (if 0 (set! a 1) (set! a 2)) (lambda () a))) が動かなくなる？
 // 今まではaは外部環境のaを参照しに行っていたため，set!で代入した後を正しく参照できていたが，変換を行うと値渡しでlistを作成するので，set!で代入してもクロージャのリストの方にはその変更は伝わらない
 // 回避するには「その場で」listを作成する必要がある．→多くの場面でリストが2回出てきてしまう
+/* 
+ (define fact (lambda (n) (if (eq n 0) 1 (_mul n (fact (_sub n 1))))))
+ (define fact3 (fact 3))
+ (fact fact3)
 
+ (define fact (lambda (self n) (if (eq n 0) 1 (_mul n (clo-ref self 1) (_sub n 1)))))
+ (define fact3 (clo-ref '(fact fact) '(fact fact) 0))
+ ((clo-ref '(fact fact) 0) fact3)
+*/
 
 cell_p substitute_closure(cell_p atom, cell_p sub_list) {
 	return get_from_env(atom, sub_list);
-}
-
-bool is_free_vars(cell_p atom, cell_p free_vars) {
-	if(!free_vars) return false;
-	if(is_same_atom(atom, car(free_vars))) return true;
-	return is_free_vars(atom, cdr(free_vars));
 }
 
 bool index_of_vars(cell_p atom, cell_p free_vars) {
@@ -477,20 +495,67 @@ bool index_of_vars(cell_p atom, cell_p free_vars) {
 	return 1 + index_of_vars(atom, cdr(free_vars));
 }
 
-cell_p collect_free_vars(cell_p lambda, cell_p free_vars) {
+cell_p collect_free_vars(cell_p root, cell_p bound_vars) {
+	if(!root) return NULL;
+	switch(cty(root)) {
+		case ATOM: {
+			if(is_member(root, bound_vars)) return NULL;
+			return cons(root, NULL);
+		}
+		case NUMBER: {
+			return NULL;
+		}
+		case LIST: {
+			if(is_lambda(root)) return NULL;
+			cell_p start_cell = root;
+			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
+				if(is_same_string(keyword[i], car(root))) {
+					if(i == K_define) {
+						start_cell = cdr(cdr(root));
+						bound_vars = cons(car_cdnr(root, 1), bound_vars);
+					} else {
+						start_cell = cdr(root);
+					}
+				}
+			}
+			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
+				if(is_same_string(predefined[i], car(root))) {
+					start_cell = cdr(root);
+				}
+			}
+			cell_p ret = NULL;
+			for(cell_p c = start_cell; c; c = cdr(c)) {
+				ret = append(ret, collect_free_vars(car(c), bound_vars), );
+			}
+			return ret;
+		} default: {
+			assert(false);
+		}
+	}
+}
+
+cell_p lambda_to_closureless(cell_p lambda, cell_p clo_subs) {
+	assert(is_lambda(lambda));
 	cell_p args = car_cdnr(lambda, 1);
+	cell_p bound_vars = args;
+	cell_p body = cdr(cdr(lambda));
+	cell_p used_free_vars = NULL;
+	cell_p new_body = NULL;
+	for(cell_p body = cdr(cdr(lambda)); body; body = cdr(body)) {
+		used_free_vars = append(used_free_vars, collect_free_vars(body, bound_vars));
+		new_body = to_closureless(car(body), bound_vars, used_free_vars, clo_subs);
+		if(is(LIST, body) && is_same_string("define", car(body))) bound_vars = cons(car_cdnr(body, 1), bound_vars);
+	}
+	return cons(make_lambda(cons(str_to_atom("self"), args), new_body), used_free_vars);
 }
 
-cell_p lambda_to_closureless(cell_p root, cell_p free_vars, cell_p clo_subs) {
-}
-
-cell_p to_closureless(cell_p root, cell_p free_vars, cell_p clo_subs) {
+cell_p to_closureless(cell_p root, cell_p bound_vars, cell_p free_vars, cell_p clo_subs) {
 	if(!root) return root;
 	switch(cty(root)) {
 		case ATOM: {
 			cell_p sub = substitute_closure(root, clo_subs);
-			if(sub) return to_closureless(cdr(sub), free_vars, clo_subs);
-			if(!is_free_vars(root, free_vars)) return root;
+			if(sub) return to_closureless(cdr(sub), bound_vars, free_vars, clo_subs);
+			if(is_member(root, bound_vars) || !is_member(root, free_vars)) return root;
 			return app3(str_to_atom("clo-ref"), str_to_atom("self"), int_to_atom(index_of_vars(root, free_vars)));
 		}
 		case NUMBER: {
@@ -507,9 +572,9 @@ cell_p to_closureless(cell_p root, cell_p free_vars, cell_p clo_subs) {
 							cell_p cond = car_cdnr(root, 1);
 							cell_p t = car_cdnr(root, 2);
 							cell_p f = car_cdnr(root, 3);
-							cell_p new_cond = to_closureless(cond, free_vars, clo_subs);
-							cell_p new_t = to_closureless(t, free_vars, clo_subs);
-							cell_p new_f = to_closureless(f, free_vars, clo_subs);
+							cell_p new_cond = to_closureless(cond, bound_vars, free_vars, clo_subs);
+							cell_p new_t = to_closureless(t, bound_vars, free_vars, clo_subs);
+							cell_p new_f = to_closureless(f, bound_vars, free_vars, clo_subs);
 							cell_p new_if = app4(str_to_atom("if"), new_cond, new_t, new_f);
 							return new_if;
 
@@ -518,13 +583,13 @@ cell_p to_closureless(cell_p root, cell_p free_vars, cell_p clo_subs) {
 							//this case should not be appeared
 							assert(false);
 						}
+						case K_set:
 						case K_define: {
+							cell_p var = car_cdnr(root, 1);
 							cell_p exp = car_cdnr(root, 2);
-							if(!is(LIST, exp) || !is_same_string("lambda", car(exp))) return app3(str_to_atom("define"), car_cdnr(root, 1), to_closureless(exp, free_vars, clo_subs));
-							cell_p used_free_vars = collect_free_vars(root, free_vars);
-							return lambda_to_closureless(root, used_free_vars, clo_subs);
-						}
-						case K_set: {
+							if(!is_lambda(exp)) return app3(car(root), var, to_closureless(exp, bound_vars, free_vars, clo_subs));
+
+							return lambda_to_closureless(root, clo_subs);
 						}
 						default: {
 							assert(false);
@@ -535,14 +600,14 @@ cell_p to_closureless(cell_p root, cell_p free_vars, cell_p clo_subs) {
 			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
 				if(is_same_string(predefined[i], car(root))) {
 					for(cell_p c = cdr(root); c; c = cdr(c)) {
-						car(c) = to_closureless(car(c), free_vars, clo_subs);
+						car(c) = to_closureless(car(c), bound_vars, free_vars, clo_subs);
 					}
 					return root;
 				}
 			}
-			car(root) = app3(str_to_atom("clo-ref"), to_closureless(car(root), free_vars, clo_subs), int_to_atom(0));
+			car(root) = app3(str_to_atom("clo-ref"), to_closureless(car(root), bound_vars, free_vars, clo_subs), int_to_atom(0));
 			for(cell_p c = cdr(root); c; c = cdr(c)) {
-				car(c) = to_closureless(car(c), free_vars, clo_subs);
+				car(c) = to_closureless(car(c), bound_vars, free_vars, clo_subs);
 			}
 			return root;
 		} default: {
@@ -566,19 +631,21 @@ int main(int argc, char **argv) {
 	puts("\n--- print_cell ast ---");
 	print_list(ast);
 	puts("\n--- print_list ast ---");
-	print_list(eval(app2(ast, nil), NULL));
+	print_list(collect_free_vars(body, NULL));
+	puts("\n--- print_list collect_free_vars(body) ---");
+	print_list(eval(cons(ast, NULL), NULL));
 	puts("\n--- eval ast ---");
 	cell_p copied_ast = make_lambda(NULL, rewrite_lambda(copy_cell(body, -1)));
 	print_list(copied_ast);
 	puts("\n--- rewrite_lambda ---");
-	print_cell(eval(app2(copied_ast, nil), NULL));
+	print_cell(eval(cons(copied_ast, NULL), NULL));
 	puts("\n--- eval copied_body ---");
 	ast = rewrite_define(ast);
 	print_list(ast);
 	puts("\n--- rewrite_define ast ---");
-	print_cell(eval(app2(ast, nil), NULL));
+	print_cell(eval(cons(ast, NULL), NULL));
 	puts("\n--- eval ast ---");
-	cell_p ast2 = to_cps(app2(ast, nil), make_lambda(cons(str_to_atom("x"), NULL), cons(str_to_atom("x"), NULL)));
+	cell_p ast2 = to_cps(cons(ast, NULL), make_lambda(cons(str_to_atom("x"), NULL), cons(str_to_atom("x"), NULL)));
 	print_list(ast2);
 	puts("\n--- to_cps ast2 ---");
 	print_cell(eval(ast2, NULL));
