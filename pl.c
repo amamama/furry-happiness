@@ -389,7 +389,7 @@ bool is_value(cell_p root) {
 
 genvar(clo, "λ")
 
-cell_p rewrite_lambda(cell_p);
+cell_p rewrite_lambda_body(cell_p);
 cell_p rewrite_lambda_aux(cell_p);
 cell_p rewrite_lambda_list(cell_p root) {
 	if(!root) return cons(NULL, NULL);
@@ -411,7 +411,7 @@ cell_p rewrite_lambda_aux(cell_p root) {
 						case K_lambda: {
 							cell_p args = car_cdnr(root, 1);
 							cell_p body = cdr(cdr(root));
-							cell_p new_body = rewrite_lambda(body);
+							cell_p new_body = rewrite_lambda_body(body);
 							cell_p var = genvar_clo();
 							cell_p new_define = app3(str_to_atom("define"), var, make_lambda(args, new_body));
 							return cons(var, cons(new_define, NULL));
@@ -419,9 +419,16 @@ cell_p rewrite_lambda_aux(cell_p root) {
 						case K_set:
 						case K_define: {
 							cell_p exp = car_cdnr(root, 2);
-							if(is_lambda(exp)) return cons(root, NULL);
-							cell_p new_exp = rewrite_lambda_aux(exp);
-							return cons(app3(str_to_atom("define"), car_cdnr(root, 1), car(new_exp)), cdr(new_exp));
+							cell_p new_exp = NULL;
+							if(is_lambda(exp)) {
+								cell_p args = car_cdnr(exp, 1);
+								cell_p body = cdr(cdr(exp));
+								cell_p new_body = rewrite_lambda_body(body);
+								new_exp = cons(make_lambda(args, new_body), NULL);
+							} else {
+								new_exp = rewrite_lambda_aux(exp);
+							}
+							return cons(app3(car(root), car_cdnr(root, 1), car(new_exp)), cdr(new_exp));
 						}
 					}
 				}
@@ -433,9 +440,9 @@ cell_p rewrite_lambda_aux(cell_p root) {
 	}
 }
 
-cell_p rewrite_lambda(cell_p bodies) {
+cell_p rewrite_lambda_body(cell_p bodies) {
 	if(!bodies) return NULL;
-	cell_p new_bodies = rewrite_lambda(cdr(bodies));
+	cell_p new_bodies = rewrite_lambda_body(cdr(bodies));
 	//puts("before ---");
 	//print_list(car(bodies));
 	//puts("\nafter ---");
@@ -462,7 +469,20 @@ cell_p rewrite_lambda(cell_p bodies) {
  (define fact3 ((clo-ref '(fact '(fact '(fact ...))) '(fact '(fact '(fact ...))) 0) 3))
  ((clo-ref '(fact '(fact '(fact ...))) 0) fact3)
 */
-// 再帰して死ぬ
+// 再帰して死ぬので「その場で」戦略ではなくdefineの方で書き換えをする（敗北）
+/*
+(define make-counter
+ 	(lambda (n)
+		(define count (_sub n 1))
+		(define λ0 (lambda () (set! count (_add count 1))))
+		λ0))
+(define counter3 (make-counter 3))
+(define counter5 (make-counter 7))
+(cons (counter3) (cons (counter3) (cons (counter5) (cons (counter5) (' ())))))
+*/
+// のようなコード（外側の環境の値を書き換えるようなコード）も死ぬ
+// (set! count ...)を変換するが，変換後が変数にならない(clo-ref self なんか)になるため
+// アイディアとしては現在set!は変数への代入に限定されているため，set-car!で頑張って計算するとか？
 
 bool is_member(cell_p atom, cell_p list) {
 	if(!list) return false;
@@ -502,7 +522,7 @@ cell_p collect_free_vars_aux(cell_p root, cell_p bound_vars) {
 					}
 				}
 			}
-			if(in_predefined(root)) {
+			if(in_predefined(car(root))) {
 				start_cell = cdr(root);
 			}
 			cell_p ret = NULL;
@@ -574,20 +594,20 @@ int main(int argc, char **argv) {
 	puts("\n--- print_list collect_free_vars(ast) ---");
 	print_list(eval(cons(ast, NULL), global_frame));
 	puts("\n--- eval ast ---");
-	cell_p copied_ast = make_lambda(NULL, rewrite_lambda(copy(body, -1)));
+	cell_p copied_ast = make_lambda(NULL, rewrite_lambda_body(copy(body, -1)));
 	print_list(copied_ast);
 	puts("\n--- rewrite_lambda ---");
-	print_cell(eval(cons(copied_ast, NULL), global_frame));
+	print_list(eval(cons(copied_ast, NULL), global_frame));
 	puts("\n--- eval copied_body ---");
 	ast = rewrite_define(ast, NULL);
 	print_list(ast);
 	puts("\n--- rewrite_define ast ---");
-	print_cell(eval(cons(ast, NULL), global_frame));
+	print_list(eval(cons(ast, NULL), global_frame));
 	puts("\n--- eval ast ---");
 	cell_p ast2 = to_cps(cons(ast, NULL), make_lambda(cons(str_to_atom("x"), NULL), cons(str_to_atom("x"), NULL)));
 	print_list(ast2);
 	puts("\n--- to_cps ast2 ---");
-	print_cell(eval(ast2, global_frame));
+	print_list(eval(ast2, global_frame));
 	puts("\n--- eval ast2 ---");
 }
 

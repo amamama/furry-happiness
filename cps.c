@@ -5,6 +5,7 @@
 #include <assert.h>
 
 #include "pl.h"
+#include "util.h"
 #include "cps.h"
 
 // cps変換のため，
@@ -46,7 +47,7 @@ cell_p rewrite_define_aux(cell_p root, cell_p outer_args) {
 	cell_p var = car_cdnr(car(body), 1);
 	cell_p exp = car_cdnr(car(body), 2);
 	cell_p set_exp = app3(str_to_atom("set!"), var, exp);
-	cell_p new_lambda = cons(car(root), cons(cons(var, NULL), cons(set_exp, cdr(body))));
+	cell_p new_lambda = make_lambda(cons(var, NULL), cons(set_exp, cdr(body)));
 	new_lambda = rewrite_define(new_lambda, args);
 	car(body) = app2(new_lambda, is_member(var, args)?var:nil);
 	cdr(body) = NULL;

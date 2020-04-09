@@ -78,4 +78,14 @@ cell_p genvar_##func() { \
 #undef begin
 #undef end
 
+#define keyword(s, t, n, exp) bool is_##t(cell_p);
+#define predefined(s, t, n, exp)
+#define begin(k, K)
+#define end(k, K)
+#include "def.h"
+#undef keyword
+#undef predefined
+#undef begin
+#undef end
+
 #endif
