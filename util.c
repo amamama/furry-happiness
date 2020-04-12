@@ -11,6 +11,11 @@ cell_p alloc_cell(cell_p car, cell_p cdr, cell_type t) {
 	return to(t, ret);
 }
 
+size_t length(cell_p list) {
+	if(!list) return 0;
+	return 1 + length(cdr(list));
+}
+
 cell_p copy(cell_p root, int depth) {
 	if(!root) return root;
 	switch(cty(root)) {

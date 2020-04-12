@@ -296,7 +296,12 @@ cell_p make_new_frame(cell_p func, cell_p args, cell_p frame) {
 #define predefined(s, t, n, exp) def_func(t, n, exp)
 #define begin(k, K)
 #define end(k, K)
-#define def_func(t, n, exp) cell_p prim_##t(cell_p root, cell_p frame) { A(n); return exp; }
+#define def_func(t, n, exp) \
+	cell_p prim_##t(cell_p root, cell_p frame) { \
+		if(n != 0 && !(length(root) > n)) err("hikisuu ga tarinai\n"), print_list(root), puts(""); \
+		A(n); \
+		return exp; \
+	}
 #include "def.h"
 #undef keyword
 #undef predefined
