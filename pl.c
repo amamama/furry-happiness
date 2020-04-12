@@ -198,6 +198,11 @@ cell_p print_list(cell_p root) {
 			print_list(car(root));
 			for(cell_p c = cdr(root); c; c = cdr(c)) {
 				printf(" ");
+				if(!is(LIST, c)) {
+					printf(". ");
+					print_list(c);
+					break;
+				}
 				print_list(car(c));
 			}
 			printf(")");
@@ -372,8 +377,8 @@ cell_p eval(cell_p root, cell_p frame) {
 }
 
 // closure 変換のため，
-// ((lambda (args) body) e1 ... en) すなわちlambda式が出現している部分式を
-// →(define clo_n (lambda (args) body)) (clo_n e1 ...  en) そのlambda式が出現している環境でdefineし直して，clo_nで参照する
+// ((lambda args body) e1 ... en) すなわちlambda式が出現している部分式を
+// →(define clo_n (lambda args body)) (clo_n e1 ...  en) そのlambda式が出現している環境でdefineし直して，clo_nで参照する
 // ように変更する
 // このとき，((lambda (_ f) (f)) (if 0 (define a 1) (define a 2)) (lambda (x) a)) が正しく動くことが望ましい
 // ただしく動けば1が帰る
@@ -392,7 +397,7 @@ genvar(clo, "λ")
 cell_p rewrite_lambda_body(cell_p);
 cell_p rewrite_lambda_aux(cell_p);
 cell_p rewrite_lambda_list(cell_p root) {
-	if(!root) return cons(NULL, NULL);
+	if(!root || !is(LIST, root)) return cons(root, NULL);
 	cell_p new_list = rewrite_lambda_list(cdr(root));
 	cell_p new_car = rewrite_lambda_aux(car(root));
 	return cons(cons(car(new_car), car(new_list)), cdr(new_car)?append(cdr(new_car), cdr(new_list)):cdr(new_list));
@@ -460,6 +465,7 @@ cell_p rewrite_lambda_body(cell_p bodies) {
 // (lambda () (define a 0) ((lambda (_ f) (f)) (if 0 (set! a 1) (set! a 2)) (lambda () a))) が動かなくなる？
 // 今まではaは外部環境のaを参照しに行っていたため，set!で代入した後を正しく参照できていたが，変換を行うと値渡しでlistを作成するので，set!で代入してもクロージャのリストの方にはその変更は伝わらない
 // 回避するには「その場で」listを作成する必要がある．→多くの場面でリストが2回出てきてしまう
+
 /* 
  (define fact (lambda (n) (if (eq n 0) 1 (_mul n (fact (_sub n 1))))))
  (define fact3 (fact 3))
@@ -469,7 +475,23 @@ cell_p rewrite_lambda_body(cell_p bodies) {
  (define fact3 ((clo-ref '(fact '(fact '(fact ...))) '(fact '(fact '(fact ...))) 0) 3))
  ((clo-ref '(fact '(fact '(fact ...))) 0) fact3)
 */
-// 再帰して死ぬので「その場で」戦略ではなくdefineの方で書き換えをする（敗北）
+// 再帰して死ぬ
+// アイディアとしては，関数を展開していく際にどの名前を使用したかを覚えておいて，循環させるようにするとか？ヤバそう．生成後のコードがグラフになるのでprintできなくなる
+// 生成後のコードがグラフになる問題，closureに保存されているlistが循環するだけなので問題ないっぽい？わからん
+
+/*
+(define o '())
+(define e (lambda (n) (if (eq n 0) 0 (o (_sub n 1)))))
+(set! o (lambda (n) (if (eq n 1) 1 (e (_sub n 1)))))
+(o 4)
+
+(define o '())
+(define e (lambda (self n) (if (eq n 0) 0 ((clo-ref (clo-ref self 1) 0) (clo-ref self 1) (_sub n 1)))))
+(set! o (lambda (n) (if (eq n 1) 1 ((clo-ref (clo-ref self 1) 0) (clo-ref self 1) (_sub n 1)))))
+((clo-ref '(o '(e '(o '(...)))) 0) '(o '(e '(o '(...)))) 4)
+
+*/
+// こんなのも「その場」じゃないと動かないけど再帰で死ぬ
 /*
 (define make-counter
  	(lambda (n)
@@ -482,8 +504,74 @@ cell_p rewrite_lambda_body(cell_p bodies) {
 */
 // のようなコード（外側の環境の値を書き換えるようなコード）も死ぬ
 // (set! count ...)を変換するが，変換後が変数にならない(clo-ref self なんか)になるため
-// アイディアとしては現在set!は変数への代入に限定されているため，set-car!で頑張って計算するとか？
+// アイディアとして現在set!は変数への代入に限定されているため，set-car!で頑張って計算するとか？ ← 採用
+// アイディアとして現在set!は変数への代入に限定されているが，これを式に対しても動くようにするとか？参照渡しが基本であるlispに於いては弊害のほうが多そうだけど.set-car!，set-cdr!がset!を用いて実装できるようになるね
+//
+// 「その場」戦略を採用するため，update-closureという関数を作る
+// ナイーブに展開すると再帰して死ぬので，まず関数定義時にclosureのskeltonを作成し，update-closureで正しい値をskeltonに代入しつつ，コピーするという戦略を取る．
+// これにより，展開先のclosureが更新されつつ，毎回呼び出されるときに新しい環境を作ることができる
+// 本当に動くのかはわからない
+// なぜ動くと思ったか
+// set-car!での代入は式に対して行え，その式は今closureである．
+// このインタプリタは変数にatomないしlistを束縛するが，closureは後者
+// 名前で引かれるclosureのポインタは変化しない．
+// 相互再帰するe,oという関数↑参照があったとき，最初（定義時）のe,oのclosureはどちらも不完全（eのlambda式に出てくるoはnilだし，oのlambda式に出てくるeの環境の中に入っているoは現状nilなので）
+// しかし，呼び出されるときにupdate-closureで当該箇所を更新すると，set-car!によってlistが更新される．
+// このとき，定義時のclosureがupdateされるが，定義時のclosureのポインタそのものは変化しない（重要）
+// eをupdateするときには，「定義時のeのclosureの参照を持ったoのclosure」が再代入されるが，
+// 「定義時のeのclosure」はset-car!によって更新されており，実際に呼び出されるときにはコピーされたものが使用され，
+// oのclosureは今完全になっているので問題ない．
+// でもこれoだけをupdateしても「eのclosure」は定義時のままだから死ぬわこれ
+// o自体をupdateしてもその変更が伝わらないと意味がない
+//
+// やっぱりクロージャ専用の機構を導入するしかないのでは？多分一番簡単に書ける
+//
+// いや，なんとかなる気がする
+// (lambda env body)って書くと実引数リストがenvに束縛されることを利用する
+// 実引数がv1 …vnの形をしているとき，env v1 …vnの形にする
+// すると，(car env)に環境，(cdr env)に局所変数リストが入るが，envのアドレス自体は変わらない
+// 変数にset!で代入していたやつはset-car!を使う（実際は何かの関数でラップする）
+// そして，(lambda …) の出現を(cons (lambda …) env) とすればよい．
+// bodyに出現する束縛変数の値は，envのn番目のcarを用いる．
+// set!の書き換え先として出現する束縛変数は，envのn番目を用い，set-car!とする．
+// 同様に，bodyに出現する自由変数は，その変数がどのフレームで束縛されているかを調べ，そのレベルだけ(car env)とする
+// envのアドレス自体は変わらないので，set-car!して更新すれば更新後の環境がペアになる
+// このとき，
+// (e1 e2 …en)は((car e1) (cdr e1) e2 … en)とする
+// 多分，↑の問題全てが解決する．
+// そのために結局rewrite_defineが必要．defineはクソ．
+// 確認のため上記の例を全て手書きで書き換える．
+// 簡単のためネストするset!は平たく直す（多分ネストしててもうまくいく）
+/*
+((lambda ()
+ (define fact (lambda (n) (if (eq n 0) 1 (_mul n (fact (_sub n 1))))))
+ (define fact3 (fact 3))
+ (fact fact3)
+))
 
+((lambda (fact fact3)
+  (set! fact (lambda (n) (if (eq n 0) 1 (_mul n (fact (_sub n 1))))))
+  (set! fact3 (fact 3))
+  (fact fact3)
+) '() '())
+
+((lambda env
+  (set-car! (cdnr env 1) (cons (lambda env (if (eq (car-cdnr env 1) 0) 1 (_mul (car-cdnr env 1) ((car (car-cdnr (car env) 1)) (cdr (car-cdnr (car env) 1)) (_sub (car-cdnr env 1) 1))))) env))
+  (set-car! (cdnr env 2) (car (car-cdnr env 1)) (cdr (car-cdnr 1)) 3)
+  ((car (car-cdnr env 1)) (cdr (car-cdnr env 1)) (car-cdnr env 2))
+) '親の環境 '() '())
+
+(define odd '())
+(define even (lambda (n) (if (eq n 0) 0 (odd (_sub n 1)))))
+(set! odd (lambda (n) (if (eq n 0) 1 (even (_sub n 1)))))
+(odd 101)
+
+(define make-counter (lambda (n) (define count (_sub n 1)) (cons (lambda () (set! count (_add count 1))) (lambda () (set! count 0)))))
+(define counter3 (make-counter 3))
+(define counter5 (make-counter 7))
+(cons ((car counter3)) (cons ((car counter5)) (cons ((cdr counter3)) (cons ((car counter3)) (cons ((car counter5)) '())))))
+
+*/
 bool is_member(cell_p atom, cell_p list) {
 	if(!list) return false;
 	if(is_same_atom(atom, car(list))) return true;
@@ -499,7 +587,8 @@ cell_p to_set(cell_p list) {
 cell_p union_list(cell_p a, cell_p b) {
 	return to_set(append(a, b));
 }
-
+//rewrite_define後を想定．というかいらないのでは？
+/*
 cell_p collect_free_vars_aux(cell_p root, cell_p bound_vars) {
 	if(!root) return NULL;
 	switch(cty(root)) {
@@ -543,11 +632,10 @@ cell_p collect_free_vars(cell_p lambda) {
 	for(cell_p bodies = cdr(cdr(lambda)); bodies; bodies = cdr(bodies)) {
 		cell_p body = car(bodies);
 		ret = union_list(ret, collect_free_vars_aux(body, args));
-		if(is_define(body)) args = cons(car_cdnr(body, 1), args);
 	}
 	return ret;
 }
-
+*/
 cell_p lambda_to_closure(cell_p lambda, cell_p clo_subs) {
 }
 
@@ -590,8 +678,8 @@ int main(int argc, char **argv) {
 	puts("\n--- print_cell ast ---");
 	print_list(ast);
 	puts("\n--- print_list ast ---");
-	print_list(collect_free_vars(ast));
-	puts("\n--- print_list collect_free_vars(ast) ---");
+	//print_list(collect_free_vars(ast));
+	//puts("\n--- print_list collect_free_vars(ast) ---");
 	print_list(eval(cons(ast, NULL), global_frame));
 	puts("\n--- eval ast ---");
 	cell_p copied_ast = make_lambda(NULL, rewrite_lambda_body(copy(body, -1)));
@@ -603,8 +691,8 @@ int main(int argc, char **argv) {
 	print_list(ast);
 	puts("\n--- rewrite_define ast ---");
 	print_list(eval(cons(ast, NULL), global_frame));
-	puts("\n--- eval ast ---");
-	cell_p ast2 = to_cps(cons(ast, NULL), make_lambda(cons(str_to_atom("x"), NULL), cons(str_to_atom("x"), NULL)));
+	puts("\n--- eval rewrite_define(ast) ---");
+	cell_p ast2 = to_cps(ast, make_lambda(cons(str_to_atom("x"), NULL), cons(app2(str_to_atom("x"), make_lambda(cons(str_to_atom("x"), NULL), cons(str_to_atom("x"), NULL))), NULL)));
 	print_list(ast2);
 	puts("\n--- to_cps ast2 ---");
 	print_list(eval(ast2, global_frame));
