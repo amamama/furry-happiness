@@ -16,6 +16,12 @@ size_t length(cell_p list) {
 	return 1 + length(cdr(list));
 }
 
+bool is_dotted_list(cell_p root) {
+	if(!root) return false;
+	if(is(LIST, cdr(root))) return is_dotted_list(cdr(root));
+	return true;
+}
+
 cell_p copy(cell_p root, int depth) {
 	if(!root) return root;
 	switch(cty(root)) {

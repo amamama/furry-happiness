@@ -131,10 +131,10 @@ cell_p parse_body(void) {
 
 #define print_rec(root, pre, f1, in, f2, post) (printf(pre), print_##f1(car(root)), printf(in), print_##f2(cdr(root)), printf(post), root)
 
-cell_p print_cell(cell_p);
+cell_p print_cell_aux(cell_p);
 cell_p print_env(cell_p env) {
 	if(!env) return NULL;
-	print_rec(car(env), "", cell, " -> ", cell, ";\n");
+	print_rec(car(env), "", cell_aux, " -> ", cell_aux, ";\n");
 	return print_env(cdr(env));
 }
 
@@ -146,7 +146,7 @@ cell_p print_frame(cell_p frame) {
 	if(!frame) return NULL;
 
 	for(size_t i = 0; i <= idx; i++) {
-		if(visited[i] == frame) return printf("%p", frame), NULL;
+		if(visited[i] == frame) return printf("[%p]", frame), frame;
 	}
 	visited[idx++] = frame;
 	assert(idx < 65536);
@@ -158,15 +158,18 @@ cell_p print_frame(cell_p frame) {
 	return print_frame(cdr(frame));
 }
 
-#define print_cell print_cell_aux
-#define cell cell_aux
-cell_p print_cell(cell_p root) {
+cell_p print_cell_aux(cell_p root) {
+	//if(!root) return printf("🈚"), root;
+	if(!root) return printf("🈳"), root;
+	for(size_t i = 0; i <= idx; i++) {
+		if(visited[i] == root) return printf("[%p]", root), root;
+	}
+
 	switch(cty(root)) {
 		case LIST: {
-			//if(!root) return printf("🈚"), root;
-			if(!root) return printf("🈳"), root;
-			//if(!root) return printf("🍌"), root;
-			return printf("%p : ", root), print_rec(root, "(", cell, ", ", cell, ")");
+			visited[idx++] = root;
+			assert(idx < 65536);
+			return printf("%p : ", root), print_rec(root, "(", cell_aux, ", ", cell_aux, ")");
 		} case ATOM: {
 			printf("%.*s", (int)(uintptr_t)cdr(root), (char*)car(root));
 			break;
@@ -174,16 +177,13 @@ cell_p print_cell(cell_p root) {
 			printf("%ld", (intptr_t)car(root));
 			break;
 		} case FUNC: {
-			return print_rec(root, "{", cell, "; ", frame, "}\n");
+			return print_rec(root, "{", cell_aux, "; ", frame, "}\n");
 		} default: {
 			assert(false);
 		}
 	}
 	return root;
 }
-
-#undef print_cell
-#undef cell
 
 cell_p print_cell(cell_p root) {
 	idx = 0;
@@ -275,6 +275,12 @@ cell_p eval_args(cell_p args, cell_p frame) {
 cell_p make_new_env(cell_p arg_decl, cell_p args, cell_p frame) {
 	cell_p env = NULL;
 	cell_p evaled_args = eval_args(args, frame);
+	if(!is_dotted_list(arg_decl) && length(arg_decl) != length(args)) {
+		puts("=========");
+		print_list(args);
+		puts("\n=======");
+		err("hikisuu no kazu ga okasii\n");
+	}
 	for(; arg_decl && is(LIST, arg_decl); ) {
 		assert(is(ATOM, car(arg_decl)));
 		env = cons(cons(car(arg_decl), car(evaled_args)), env);
@@ -554,27 +560,54 @@ cell_p rewrite_lambda_body(cell_p bodies) {
  (fact fact3)
 ))
 
-((lambda (fact fact3)
-  (set! fact (lambda (n) (if (eq n 0) 1 (_mul n (fact (_sub n 1))))))
-  (set! fact3 (fact 3))
-  (fact fact3)
-) '() '())
+(define cdnr (lambda (l n) (if (eq n 0) l (cdnr (cdr l) (_sub n 1)))))
+(define car-cdnr (lambda (l n) (if (eq n 0) (car l) (car-cdnr (cdr l) (_sub n 1)))))
+(define l (lambda env
+(set-car! (cdnr env 1) (cons (lambda env (if (eq (car-cdnr env 1) 0) 1 (_mul (car-cdnr env 1) ((car (car-cdnr (car env) 1)) (cdr (car-cdnr (car env) 1)) (_sub (car-cdnr env 1) 1))))) env))
+(set-car! (cdnr env 2) ((car (car-cdnr env 1)) (cdr (car-cdnr env 1)) 3))
+((car (car-cdnr env 1)) (cdr (car-cdnr env 1)) (car-cdnr env 2))))
+(car-cdnr '(0 1 2 3 4) 0)
+(l 'env '() '())
 
-((lambda env
-  (set-car! (cdnr env 1) (cons (lambda env (if (eq (car-cdnr env 1) 0) 1 (_mul (car-cdnr env 1) ((car (car-cdnr (car env) 1)) (cdr (car-cdnr (car env) 1)) (_sub (car-cdnr env 1) 1))))) env))
-  (set-car! (cdnr env 2) (car (car-cdnr env 1)) (cdr (car-cdnr 1)) 3)
-  ((car (car-cdnr env 1)) (cdr (car-cdnr env 1)) (car-cdnr env 2))
-) '親の環境 '() '())
 
 (define odd '())
 (define even (lambda (n) (if (eq n 0) 0 (odd (_sub n 1)))))
 (set! odd (lambda (n) (if (eq n 0) 1 (even (_sub n 1)))))
 (odd 101)
 
+(define cdnr (lambda (l n) (if (eq n 0) l (cdnr (cdr l) (_sub n 1)))))
+(define car-cdnr (lambda (l n) (if (eq n 0) (car l) (car-cdnr (cdr l) (_sub n 1)))))
+(define l (lambda env
+	(set-car! (cdnr env 1) (cons (lambda env (if (eq (car-cdnr env 1) 0) 0 ((car (car-cdnr (car env) 2)) (cdr (car-cdnr (car env) 2)) (_sub (car-cdnr env 1) 1)))) env))
+	(set-car! (cdnr env 2) (cons (lambda env (if (eq (car-cdnr env 1) 0) 1 ((car (car-cdnr (car env) 1)) (cdr (car-cdnr (car env) 1)) (_sub (car-cdnr env 1) 1)))) env))
+	((car (car-cdnr env 2)) (cdr (car-cdnr env 2)) 101)))
+(l 'env '() '())
+
+
 (define make-counter (lambda (n) (define count (_sub n 1)) (cons (lambda () (set! count (_add count 1))) (lambda () (set! count 0)))))
 (define counter3 (make-counter 3))
 (define counter5 (make-counter 7))
 (cons ((car counter3)) (cons ((car counter5)) (cons ((cdr counter3)) (cons ((car counter3)) (cons ((car counter5)) '())))))
+
+(define cdnr (lambda (l n) (if (eq n 0) l (cdnr (cdr l) (_sub n 1)))))
+(define car-cdnr (lambda (l n) (if (eq n 0) (car l) (car-cdnr (cdr l) (_sub n 1)))))
+(define l (lambda env
+	(set-car! (cdnr env 1)
+		(cons (lambda env
+			(set-car! (cdnr env 2) (_sub (car-cdnr env 1) 1))
+			(set-car! (cdnr env 3) (cons (lambda env (set-car! (cdnr (car env) 2) (_add (car-cdnr (car env) 2) 1))) env))
+			(set-car! (cdnr env 4) (cons (lambda env (set-car! (cdnr (car env) 2) 0)) env))
+			(cons (car-cdnr env 3) (car-cdnr env 4))) env))
+	(set-car! (cdnr env 2) ((car (car-cdnr env 1)) (cdr (car-cdnr env 1)) 3 '() '() '()))
+	(set-car! (cdnr env 3) ((car (car-cdnr env 1)) (cdr (car-cdnr env 1)) 7 '() '() '()))
+	(cons ((car (car (car-cdnr env 2))) (cdr (car (car-cdnr env 2))))
+	      (cons ((car (car (car-cdnr env 3))) (cdr (car (car-cdnr env 3))))
+	            (cons ((car (cdr (car-cdnr env 2))) (cdr (cdr (car-cdnr env 2))))
+	                  (cons ((car (car (car-cdnr env 2))) (cdr (car (car-cdnr env 2))))
+	                        (cons ((car (car (car-cdnr env 3))) (cdr (car (car-cdnr env 3))))
+	                              '())))))))
+
+(l 'env '() '() '())
 
 */
 bool is_member(cell_p atom, cell_p list) {
@@ -685,22 +718,22 @@ int main(int argc, char **argv) {
 	puts("\n--- print_list ast ---");
 	//print_list(collect_free_vars(ast));
 	//puts("\n--- print_list collect_free_vars(ast) ---");
-	print_list(eval(cons(ast, NULL), global_frame));
+	print_cell(eval(cons(ast, NULL), global_frame));
 	puts("\n--- eval ast ---");
 	cell_p copied_ast = make_lambda(NULL, rewrite_lambda_body(copy(body, -1)));
 	print_list(copied_ast);
 	puts("\n--- rewrite_lambda ---");
-	print_list(eval(cons(copied_ast, NULL), global_frame));
+	print_cell(eval(cons(copied_ast, NULL), global_frame));
 	puts("\n--- eval copied_body ---");
 	ast = rewrite_define(ast, NULL);
 	print_list(ast);
 	puts("\n--- rewrite_define ast ---");
-	print_list(eval(cons(ast, NULL), global_frame));
+	print_cell(eval(cons(ast, NULL), global_frame));
 	puts("\n--- eval rewrite_define(ast) ---");
 	cell_p ast2 = to_cps(ast, make_lambda(cons(str_to_atom("x"), NULL), cons(app2(str_to_atom("x"), make_lambda(cons(str_to_atom("x"), NULL), cons(str_to_atom("x"), NULL))), NULL)));
 	print_list(ast2);
 	puts("\n--- to_cps ast2 ---");
-	print_list(eval(ast2, global_frame));
+	print_cell(eval(ast2, global_frame));
 	puts("\n--- eval ast2 ---");
 }
 

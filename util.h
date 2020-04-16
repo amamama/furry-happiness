@@ -4,6 +4,7 @@
 #include "pl.h"
 
 cell_p alloc_cell(cell_p, cell_p, cell_type);
+bool is_dotted_list(cell_p);
 size_t length(cell_p);
 cell_p copy(cell_p, int);
 cell_p append(cell_p, cell_p);
