@@ -552,7 +552,9 @@ cell_p rewrite_lambda_body(cell_p bodies) {
 // 多分，↑の問題全てが解決する．
 // そのために結局rewrite_defineが必要．defineはクソ．
 // 確認のため上記の例を全て手書きで書き換える．
-// 簡単のためネストするset!は平たく直す（多分ネストしててもうまくいく）
+// 簡単のためネストするset!は平たくしておく（多分ネストしててもうまくいく）
+// 効率を考えてdefineを平たくするようにrewrite_defineを書き換えたほうがいい
+// 動いたので実装する
 /*
 ((lambda ()
  (define fact (lambda (n) (if (eq n 0) 1 (_mul n (fact (_sub n 1))))))

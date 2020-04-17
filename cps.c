@@ -9,8 +9,8 @@
 #include "cps.h"
 
 // cps変換のため，
-// (lambda (args) pre_bodies (define v e) post_bodies)
-// -> (lambda (args) pre_bodies (rewrite_define(<<<(lambda (v) (set! v e) post_bodies)>>>) '()))
+// (lambda (args) (define v_1 e_1) ... (define v_n e_n) post_bodies)
+// -> (lambda (args) (rewrite_define(<<<(lambda (v_1 ... v_n ) (set! v_1 e_1) (set! v_n e_n) post_bodies)>>>) '() ... '()))
 // のようにする．
 // これによって，ナイーブな前方参照や相互再帰ができなくなる．
 /*
@@ -43,22 +43,40 @@ cell_p formal_args_to_list(cell_p args) {
 	return cons(car(args), formal_args_to_list(cdr(args)));
 }
 
+cell_p make_set_exp_list(cell_p begin, cell_p end) {
+	if(begin == end) return cons(NULL, NULL);
+	cell_p ret = make_set_exp_list(cdr(begin), end);
+	cell_p var = car_cdnr(car(begin), 1);
+	cell_p exp = car_cdnr(car(begin), 2);
+	cell_p set_exp = app3(str_to_atom("set!"), var, exp);
+	return cons(cons(var, car(ret)), cons(set_exp, cdr(ret)));
+}
+
+cell_p make_nil_list(cell_p set_exp_list, cell_p bound_vars) {
+	if(!set_exp_list) return NULL;
+	cell_p var = car_cdnr(car(set_exp_list), 1);
+	return cons(is_member(var, bound_vars)?var:nil, make_nil_list(cdr(set_exp_list), bound_vars));
+}
+
 cell_p rewrite_define_aux(cell_p root, cell_p outer_args) {
 	assert(is_lambda(root));
 	cell_p args = formal_args_to_list(car_cdnr(root, 1));
 	cell_p bound_vars = union_list(args, outer_args);
 	cell_p body = cdr(cdr(root));
-	for(; body && (!is(LIST, car(body)) || (is(LIST, car(body)) && !is_same_string("define", car(car(body))))); body = cdr(body)) {
+	for(; body && (!is_define(car(body))); body = cdr(body)) {
 		car(body) = rewrite_define(car(body), bound_vars);
 	}
 	if(!body) return root;
-	cell_p var = car_cdnr(car(body), 1);
-	cell_p exp = car_cdnr(car(body), 2);
-	cell_p set_exp = app3(str_to_atom("set!"), var, exp);
-	cell_p new_lambda = make_lambda(cons(var, NULL), cons(set_exp, cdr(body)));
+	cell_p define_begin = body;
+	for(; body && (is_define(car(body))); body = cdr(body));
+	cell_p define_end = body;
+	cell_p set_exp_list = make_set_exp_list(define_begin, define_end);
+	
+	cell_p new_lambda = make_lambda(car(set_exp_list), append(cdr(set_exp_list), define_end));
 	new_lambda = rewrite_define(new_lambda, bound_vars);
-	car(body) = app2(new_lambda, is_member(var, bound_vars)?var:nil);
-	cdr(body) = NULL;
+	cell_p nil_list = make_nil_list(cdr(set_exp_list), bound_vars);
+	car(define_begin) = cons(new_lambda, nil_list);
+	cdr(define_begin) = NULL;
 	return root;
 }
 
