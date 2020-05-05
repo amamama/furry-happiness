@@ -58,20 +58,34 @@ cell_p make_nil_list(cell_p set_exp_list, cell_p bound_vars) {
 	return cons(is_member(var, bound_vars)?var:nil, make_nil_list(cdr(set_exp_list), bound_vars));
 }
 
-cell_p rewrite_define_aux(cell_p root, cell_p outer_args) {
+cell_p destruct_lambda(cell_p root) {
 	assert(is_lambda(root));
 	cell_p args = formal_args_to_list(car_cdnr(root, 1));
-	cell_p bound_vars = union_list(args, outer_args);
 	cell_p body = cdr(cdr(root));
-	for(; body && (!is_define(car(body))); body = cdr(body)) {
-		car(body) = rewrite_define(car(body), bound_vars);
-	}
-	if(!body) return root;
 	cell_p define_begin = body;
 	for(; body && (is_define(car(body))); body = cdr(body));
-	cell_p define_end = body;
-	cell_p set_exp_list = make_set_exp_list(define_begin, define_end);
+	cell_p ret = cons(args, cons(define_begin, cons(body, NULL)));
+	for(; body && (!is_define(car(body))); body = cdr(body));
+	assert(!body);
+	return ret;
+}
+
+cell_p rewrite_define_aux(cell_p root, cell_p outer_args) {
+	assert(is_lambda(root));
+	cell_p destructed = destruct_lambda(root);
+	cell_p args = car_cdnr(destructed, 0);
+	cell_p bound_vars = union_list(args, outer_args);
+	cell_p define_begin = car_cdnr(destructed, 1);
+	cell_p define_end = car_cdnr(destructed, 2);
+	cell_p body = define_end;
+	if(define_begin == define_end) {
+		for(; body; body = cdr(body)) {
+			car(body) = rewrite_define(car(body), bound_vars);
+		}
+		return root;
+	}
 	
+	cell_p set_exp_list = make_set_exp_list(define_begin, define_end);
 	cell_p new_lambda = make_lambda(car(set_exp_list), append(cdr(set_exp_list), define_end));
 	new_lambda = rewrite_define(new_lambda, bound_vars);
 	cell_p nil_list = make_nil_list(cdr(set_exp_list), bound_vars);

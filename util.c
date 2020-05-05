@@ -6,6 +6,7 @@
 
 cell_p alloc_cell(cell_p car, cell_p cdr, cell_type t) {
 	cell_p ret = malloc(sizeof(cell));
+	assert(ret);
 	ret->car = car;
 	ret->cdr = cdr;
 	return to(t, ret);

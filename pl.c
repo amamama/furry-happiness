@@ -551,8 +551,9 @@ cell_p rewrite_lambda_body(cell_p bodies) {
 // (e1 e2 …en)は((car e1) (cdr e1) e2 … en)とする
 // 多分，↑の問題全てが解決する．
 // そのために結局rewrite_defineが必要．defineはクソ．
+// ↑これは嘘で，rewrite_defineするとまたlambdaが出てきてしまうので，defineを発見したら（defineの列の後に式の列を仮定），最初にenvのcdrをnilのリストで書き換えてset!する．
+// すなわち局所変数のための記憶領域を確保して代入する作業をする．
 // 確認のため上記の例を全て手書きで書き換える．
-// 簡単のためネストするset!は平たくしておく（多分ネストしててもうまくいく）
 // 効率を考えてdefineを平たくするようにrewrite_defineを書き換えたほうがいい
 // 動いたので実装する
 /*
@@ -627,56 +628,9 @@ cell_p to_set(cell_p list) {
 cell_p union_list(cell_p a, cell_p b) {
 	return to_set(append(a, b));
 }
-//rewrite_define後を想定．というかいらないのでは？
-/*
-cell_p collect_free_vars_aux(cell_p root, cell_p bound_vars) {
-	if(!root) return NULL;
-	switch(cty(root)) {
-		case ATOM: {
-			if(is_member(root, bound_vars)) return NULL;
-			return cons(root, NULL);
-		}
-		case NUMBER: {
-			return NULL;
-		}
-		case LIST: {
-			if(is_value(root)) return NULL;
-			cell_p start_cell = root;
-			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
-				if(is_keyword[i](root)) {
-					if(i == K_define) {
-						start_cell = cdr(cdr(root));
-					} else {
-						start_cell = cdr(root);
-					}
-				}
-			}
-			if(in_predefined(car(root))) {
-				start_cell = cdr(root);
-			}
-			cell_p ret = NULL;
-			for(cell_p c = start_cell; c; c = cdr(c)) {
-				ret = union_list(ret, collect_free_vars_aux(car(c), bound_vars));
-			}
-			return ret;
-		} default: {
-			assert(false);
-		}
-	}
-}
 
-cell_p collect_free_vars(cell_p lambda) {
-	assert(is_lambda(lambda));
-	cell_p ret = NULL;
-	cell_p args = car_cdnr(lambda, 1);
-	for(cell_p bodies = cdr(cdr(lambda)); bodies; bodies = cdr(bodies)) {
-		cell_p body = car(bodies);
-		ret = union_list(ret, collect_free_vars_aux(body, args));
-	}
-	return ret;
-}
-*/
-cell_p lambda_to_closure(cell_p lambda, cell_p clo_subs) {
+// TODO: 関数の場所を考える．公開，非公開やファイルなど．
+cell_p lambda_to_closure(cell_p lambda, cell_p frame) {
 }
 
 cell_p to_closure(cell_p root) {
