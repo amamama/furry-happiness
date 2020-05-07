@@ -36,65 +36,37 @@
 (define shadow (lambda (a0 a1 a2 a3) (define a0 (_add a0 a1)) (define a01 (_add a0 a1)) (_add a01 a2)))
 (shadow a0 a1 a2 a3)
 */
-// outer_argsを追加して↑のケースで落ちないようになった
-cell_p formal_args_to_list(cell_p args) {
-	if(!args) return NULL;
-	if(is(ATOM, args)) return cons(args, NULL);
-	return cons(car(args), formal_args_to_list(cdr(args)));
+// frameを追加して↑のケースで落ちないようになった
+
+cell_p map_app2q(cell_p list) {
+	if(!list) return NULL;
+	return cons(app2(str_to_atom("'"), car(list)), map_app2q(cdr(list)));
 }
 
-cell_p make_set_exp_list(cell_p begin, cell_p end) {
-	if(begin == end) return cons(NULL, NULL);
-	cell_p ret = make_set_exp_list(cdr(begin), end);
-	cell_p var = car_cdnr(car(begin), 1);
-	cell_p exp = car_cdnr(car(begin), 2);
-	cell_p set_exp = app3(str_to_atom("set!"), var, exp);
-	return cons(cons(var, car(ret)), cons(set_exp, cdr(ret)));
-}
-
-cell_p make_nil_list(cell_p set_exp_list, cell_p bound_vars) {
-	if(!set_exp_list) return NULL;
-	cell_p var = car_cdnr(car(set_exp_list), 1);
-	return cons(is_member(var, bound_vars)?var:nil, make_nil_list(cdr(set_exp_list), bound_vars));
-}
-
-cell_p destruct_lambda(cell_p root) {
-	assert(is_lambda(root));
-	cell_p args = formal_args_to_list(car_cdnr(root, 1));
-	cell_p body = cdr(cdr(root));
-	cell_p define_begin = body;
-	for(; body && (is_define(car(body))); body = cdr(body));
-	cell_p ret = cons(args, cons(define_begin, cons(body, NULL)));
-	for(; body && (!is_define(car(body))); body = cdr(body));
-	assert(!body);
-	return ret;
-}
-
-cell_p rewrite_define_aux(cell_p root, cell_p outer_args) {
+cell_p rewrite_define_aux(cell_p root, cell_p frame) {
 	assert(is_lambda(root));
 	cell_p destructed = destruct_lambda(root);
 	cell_p args = car_cdnr(destructed, 0);
-	cell_p bound_vars = union_list(args, outer_args);
+	cell_p new_frame = cons(args, frame);
 	cell_p define_begin = car_cdnr(destructed, 1);
 	cell_p define_end = car_cdnr(destructed, 2);
-	cell_p body = define_end;
 	if(define_begin == define_end) {
-		for(; body; body = cdr(body)) {
-			car(body) = rewrite_define(car(body), bound_vars);
+		for(cell_p body = define_end; body; body = cdr(body)) {
+			car(body) = rewrite_define(car(body), new_frame);
 		}
 		return root;
 	}
 	
 	cell_p set_exp_list = make_set_exp_list(define_begin, define_end);
 	cell_p new_lambda = make_lambda(car(set_exp_list), append(cdr(set_exp_list), define_end));
-	new_lambda = rewrite_define(new_lambda, bound_vars);
-	cell_p nil_list = make_nil_list(cdr(set_exp_list), bound_vars);
-	car(define_begin) = cons(new_lambda, nil_list);
+	new_lambda = rewrite_define_aux(new_lambda, frame);
+	cell_p nil_list = make_nil_list(car(set_exp_list), new_frame);
+	car(define_begin) = cons(new_lambda, map_app2q(nil_list));
 	cdr(define_begin) = NULL;
 	return root;
 }
 
-cell_p rewrite_define(cell_p root, cell_p args) {
+cell_p rewrite_define(cell_p root, cell_p frame) {
 	if(!root) return root;
 	switch(cty(root)) {
 		case ATOM:
@@ -105,7 +77,7 @@ cell_p rewrite_define(cell_p root, cell_p args) {
 				if(is_keyword[i](root)) {
 					switch(i) {
 						case K_lambda: {
-							return rewrite_define_aux(root, args);
+							return rewrite_define_aux(root, frame);
 						}
 						case K_define: {
 							// this case should not be executed
@@ -116,7 +88,7 @@ cell_p rewrite_define(cell_p root, cell_p args) {
 				}
 			}
 			for(cell_p c = root; c; c = cdr(c)) {
-				car(c) = rewrite_define(car(c), args);
+				car(c) = rewrite_define(car(c), frame);
 			}
 			return root;
 		} default: {
@@ -137,9 +109,9 @@ genvar(cps, "継続")
    (lambda (_) to_cps(bodyn, k0)))))))))
    */
 
-cell_p bodies_to_cps(cell_p bodies, cell_p cont_var) {
+cell_p body_to_cps(cell_p bodies, cell_p cont_var) {
 	if(!cdr(bodies)) return to_cps(car(bodies), cont_var);
-	cell_p new_lambda = make_lambda(cons(str_to_atom("_"), NULL), cons(bodies_to_cps(cdr(bodies), cont_var), NULL));
+	cell_p new_lambda = make_lambda(cons(str_to_atom("_"), NULL), cons(body_to_cps(cdr(bodies), cont_var), NULL));
 	return to_cps(car(bodies), new_lambda);
 }
 
@@ -192,7 +164,7 @@ cell_p to_cps(cell_p root, cell_p cont) {
 							cell_p new_var1 = genvar_cps();
 							cell_p new_then_cls = to_cps(then_cls, new_var0);
 							cell_p new_else_cls = to_cps(else_cls, new_var0);
-							cell_p new_if = cons(str_to_atom("if"), cons(new_var1, cons(new_then_cls, cons(new_else_cls, NULL))));
+							cell_p new_if = app4(str_to_atom("if"), new_var1, new_then_cls, new_else_cls);
 							cell_p new_cont = make_lambda(cons(new_var1, NULL), cons(new_if, NULL));
 							cell_p new_lambda = make_lambda(cons(new_var0, NULL), cons(to_cps(cond, new_cont), NULL));
 							return cons(new_lambda, cons(cont, NULL));
@@ -205,9 +177,9 @@ cell_p to_cps(cell_p root, cell_p cont) {
 											(lambda (kn) to_cps(bodyn, k0)))))))))
 							*/
 							cell_p new_var = genvar_cps();
-							cell_p bodies = cdr(cdr(root));
+							cell_p body = cdr(cdr(root));
 							cell_p new_args = cons(new_var, car_cdnr(root, 1));
-							cell_p new_body = bodies_to_cps(bodies, new_var);
+							cell_p new_body = body_to_cps(body, new_var);
 							cell_p new_lambda = make_lambda(new_args, cons(new_body, NULL));
 							 return cons(cont, cons(new_lambda, NULL));
 						}
@@ -243,8 +215,8 @@ cell_p to_cps(cell_p root, cell_p cont) {
 
 #else
 
-cell_p bodies_to_cps2(cell_p bodies, cell_p cont_var) {
-	return app2(to_cps2(car(bodies)), cdr(bodies)?make_lambda(cons(str_to_atom("_"), NULL), cons(bodies_to_cps2(cdr(bodies), cont_var), NULL)):cont_var);
+cell_p body_to_cps2(cell_p bodies, cell_p cont_var) {
+	return app2(to_cps2(car(bodies)), cdr(bodies)?make_lambda(cons(str_to_atom("_"), NULL), cons(body_to_cps2(cdr(bodies), cont_var), NULL)):cont_var);
 }
 
 cell_p apply_to_cps_aux2(cell_p exp, cell_p cont_vars, cell_p cont) {
@@ -292,15 +264,15 @@ cell_p to_cps2(cell_p root) {
 							cell_p new_var1 = genvar_cps();
 							cell_p new_then_cls = to_cps(then_cls, new_var0);
 							cell_p new_else_cls = to_cps(else_cls, new_var0);
-							cell_p new_if = cons(str_to_atom("if"), cons(new_var1, cons(new_then_cls, cons(new_else_cls, NULL))));
+							cell_p new_if = app4(str_to_atom("if"), new_var1, new_then_cls, new_else_cls);
 							cell_p new_cont = make_lambda(cons(new_var1, NULL), cons(new_if, NULL));
 							cell_p new_lambda = make_lambda(cons(new_var0, NULL), cons(to_cps(cond, new_cont), NULL));
 							return new_lambda;
 						} case K_lambda: {
 							cell_p new_var = genvar_cps();
-							cell_p bodies = cdr(cdr(root));
+							cell_p body = cdr(cdr(root));
 							cell_p new_args = cons(new_var, car_cdnr(root, 1));
-							cell_p new_body = bodies_to_cps2(bodies, new_var);
+							cell_p new_body = body_to_cps2(body, new_var);
 							cell_p new_lambda = make_lambda(new_args, cons(new_body, NULL));
 							cell_p k = genvar_cps();
 							 return make_lambda(cons(k, NULL), cons(app2(k, new_lambda), NULL));

@@ -9,5 +9,6 @@ size_t length(cell_p);
 cell_p copy(cell_p, int);
 cell_p append(cell_p, cell_p);
 cell_p car_cdnr(cell_p, unsigned int);
+cell_p cdnr(cell_p, unsigned int);
 
 #endif

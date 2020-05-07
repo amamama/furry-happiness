@@ -272,12 +272,11 @@ cell_p eval_args(cell_p args, cell_p frame) {
 	return cons(eval(car(args), frame), eval_args(cdr(args), frame));
 }
 
-cell_p make_new_env(cell_p arg_decl, cell_p args, cell_p frame) {
+cell_p make_new_env(cell_p arg_decl, cell_p evaled_args, cell_p frame) {
 	cell_p env = NULL;
-	cell_p evaled_args = eval_args(args, frame);
-	if(!is_dotted_list(arg_decl) && length(arg_decl) != length(args)) {
+	if(!is_dotted_list(arg_decl) && length(arg_decl) != length(evaled_args)) {
 		puts("=========");
-		print_list(args);
+		print_list(evaled_args);
 		puts("\n=======");
 		err("hikisuu no kazu ga okasii\n");
 	}
@@ -291,11 +290,29 @@ cell_p make_new_env(cell_p arg_decl, cell_p args, cell_p frame) {
 	return env;
 }
 
-cell_p make_new_frame(cell_p func, cell_p args, cell_p frame) {
+cell_p make_new_frame(cell_p func, cell_p evaled_args, cell_p frame) {
 	cell_p lambda = car(func);
 	cell_p lambda_frame = cdr(func);
-	cell_p env = make_new_env(car_cdnr(lambda, 1), args, frame);
+	cell_p env = make_new_env(car_cdnr(lambda, 1), evaled_args, frame);
 	return cons(env, lambda_frame);
+}
+
+cell_p apply(cell_p func, cell_p frame) {
+	assert(is(FUNC, func));
+	cell_p body = cdr(cdr(car(func)));
+	cell_p ret = NULL;
+	for(; body; body = cdr(body)) {
+		ret = eval(car(body), frame);
+	}
+	return ret;
+}
+
+cell_p move_arg(cell_p env, size_t depth) {
+	if(depth == 1) {
+		cdr(env) = cons(cdr(env), NULL);
+		return env;
+	}
+	return move_arg(cdr(env), depth - 1);
 }
 
 #define keyword(s, t, n, exp) def_func(t, n, exp)
@@ -351,16 +368,6 @@ cell_p make_new_frame(cell_p func, cell_p args, cell_p frame) {
 #undef end
 #undef to_funcname
 
-cell_p apply(cell_p func, cell_p args, cell_p frame) {
-	cell_p new_frame = cons(NULL, make_new_frame(func, args, frame));
-	cell_p body = cdr(cdr(car(func)));
-	cell_p ret = NULL;
-	for(; body; body = cdr(body)) {
-		ret = eval(car(body), new_frame);
-	}
-	return ret;
-}
-
 cell_p eval(cell_p root, cell_p frame) {
 	switch(cty(root)) {
 		case ATOM: {
@@ -380,7 +387,7 @@ cell_p eval(cell_p root, cell_p frame) {
 				if(is_same_string(predefined[i], evaled_car)) return predefined_funcs[i](root, frame);
 			}
 			assert(is(FUNC, evaled_car));
-			return apply(evaled_car, cdr(root), frame);
+			return apply(evaled_car, cons(NULL, make_new_frame(evaled_car, eval_args(cdr(root), frame), frame)));
 		} default: {
 			assert(false);
 		}
@@ -549,6 +556,8 @@ cell_p rewrite_lambda_body(cell_p bodies) {
 // envのアドレス自体は変わらないので，set-car!して更新すれば更新後の環境がペアになる
 // このとき，
 // (e1 e2 …en)は((car e1) (cdr e1) e2 … en)とする
+// ↑e1がコピーされるのでこまる
+// (e1 e2 …en)は(クロージャ適用 e1 e2 … en)とする
 // 多分，↑の問題全てが解決する．
 // そのために結局rewrite_defineが必要．defineはクソ．
 // ↑これは嘘で，rewrite_defineするとまたlambdaが出てきてしまうので，defineを発見したら（defineの列の後に式の列を仮定），最初にenvのcdrをnilのリストで書き換えてset!する．
@@ -556,6 +565,54 @@ cell_p rewrite_lambda_body(cell_p bodies) {
 // 確認のため上記の例を全て手書きで書き換える．
 // 効率を考えてdefineを平たくするようにrewrite_defineを書き換えたほうがいい
 // 動いたので実装する
+// 最初から(lambda args ...) や(lambda (head . tail) ...) みたいになっているlambda式はどうする？
+// ((lambda args ...) 1 2 3 4)の場合
+// ((lambda env ...) env 1 2 3 4)となり
+// argsで参照していたところは(cdr env)でよい？
+// (set! args ...) → (set-cdr! env ...)になるね
+// ↓との統一性のためちょっと変更する
+// argsで参照していたところは(cdnr env 0)で
+// (set! args ...) → (set-cdr! (cdnr env 0) ...)
+//
+// ((lambda (head1 head2 . tail) ...) 1 2 3 4)の場合
+// ((lambda env ...) env 1 2 3 4)となり
+// head1で参照していたところは(car-cdnr env 1)，head2は(car-cdnr env 2)でいい？
+// tailは(cdnr env 2)になるね
+// (set! head1 ...) →(set-car! (cdnr env 1) ...)，
+// (set! head2 ...) →(set-car! (cdnr env 2) ...)，
+// (set! tail ...) →(set-cdr! (cdnr env 2) ...)か
+//
+// ↑ボツ
+// これ局所変数どうすんねん
+//     env             env
+//    /   \      →   /   \
+// env'  args      env'   []
+//                       /  \
+//                    args  nil
+//
+// ((lambda args ...) 1 2 3 4)の場合
+// ((lambda env ...) env 1 2 3 4)となり
+// argsで参照していたところは(car-cdnr env 1)
+// (set! args ...) → (set-car! (cdnr env 1) ...)
+//
+//     env             env
+//    /   \      →   /   \
+// env'   []      env'    []
+//       /  \            /  \
+//    head1 []        head1 []
+//         /  \            /  \
+//      head2 tail      head2 []
+//                           /  \
+//                        tail  nil
+//
+// ((lambda (head1 head2 . tail) ...) 1 2 3 4)の場合
+// ((lambda env ...) env 1 2 3 4)となり
+// head1で参照していたところは(car-cdnr env 1)，head2は(car-cdnr env 2)でいい？
+// tailは(car-cdnr env 3)になるね
+// (set! head1 ...) →(set-car! (cdnr env 1) ...)，
+// (set! head2 ...) →(set-car! (cdnr env 2) ...)，
+// (set! tail ...) →(set-cdr! (cdnr env 3) ...)
+//
 /*
 ((lambda ()
  (define fact (lambda (n) (if (eq n 0) 1 (_mul n (fact (_sub n 1))))))
@@ -613,6 +670,7 @@ cell_p rewrite_lambda_body(cell_p bodies) {
 (l 'env '() '() '())
 
 */
+/*
 bool is_member(cell_p atom, cell_p list) {
 	if(!list) return false;
 	if(is_same_atom(atom, car(list))) return true;
@@ -628,27 +686,201 @@ cell_p to_set(cell_p list) {
 cell_p union_list(cell_p a, cell_p b) {
 	return to_set(append(a, b));
 }
+*/
 
-// TODO: 関数の場所を考える．公開，非公開やファイルなど．
-cell_p lambda_to_closure(cell_p lambda, cell_p frame) {
+size_t index_of_atom(cell_p atom, cell_p list) {
+	assert(list);
+	if(is_same_atom(atom, car(list))) return 0;
+	return 1 + index_of_atom(atom, cdr(list));
 }
 
-cell_p to_closure(cell_p root) {
+bool is_args(cell_p atom, cell_p args) {
+	if(!args) return false;
+	if(is(ATOM, args)) return is_same_atom(atom, args);
+	if(is_same_atom(atom, car(args))) return true;
+	return is_args(atom, cdr(args));
+}
+
+bool is_bound(cell_p atom, cell_p frame) {
+	if(!frame) return false;
+	if(is_args(atom, car(frame))) return true;
+	return is_bound(atom, cdr(frame));
+}
+
+cell_p make_set_exp_list(cell_p begin, cell_p end) {
+	if(begin == end) return cons(NULL, NULL);
+	cell_p ret = make_set_exp_list(cdr(begin), end);
+	cell_p var = car_cdnr(car(begin), 1);
+	cell_p exp = car_cdnr(car(begin), 2);
+	cell_p set_exp = app3(str_to_atom("set!"), var, exp);
+	return cons(cons(var, car(ret)), cons(set_exp, cdr(ret)));
+}
+
+cell_p make_nil_list(cell_p set_exp_list, cell_p frame) {
+	if(!set_exp_list) return NULL;
+	cell_p var = car(set_exp_list);
+	return cons(is_bound(var, frame)?var:NULL, make_nil_list(cdr(set_exp_list), frame));
+}
+cell_p formal_args_to_list(cell_p args) {
+	if(!args) return NULL;
+	if(is(ATOM, args)) return cons(args, NULL);
+	return cons(car(args), formal_args_to_list(cdr(args)));
+}
+
+cell_p destruct_lambda(cell_p root) {
+	assert(is_lambda(root));
+	cell_p args = car_cdnr(root, 1);
+	cell_p body = cdr(cdr(root));
+	cell_p define_begin = body;
+	for(; body && (is_define(car(body))); body = cdr(body));
+	cell_p ret = cons(args, cons(define_begin, cons(body, NULL)));
+	for(; body && (!is_define(car(body))); body = cdr(body));
+	assert(!body);
+	return ret;
+}
+
+// TODO: 関数の場所を考える．公開，非公開やファイルなど．
+
+cell_p to_closure(cell_p, cell_p);
+cell_p body_to_closure(cell_p bodies, cell_p frame) {
+	if(!bodies) return NULL;
+	cell_p new_body = to_closure(car(bodies), frame);
+	return cons(new_body, body_to_closure(cdr(bodies), frame));
+}
+
+cell_p lambda_to_closure(cell_p lambda, cell_p frame) {
+	puts("======= before =============");
+	print_list(lambda);
+	puts("\n==========================");
+	cell_p destructed = destruct_lambda(lambda);
+	cell_p args = car_cdnr(destructed, 0);
+	cell_p define_begin = car_cdnr(destructed, 1);
+	cell_p body = car_cdnr(destructed, 2);
+	
+	cell_p new_frame = cons(formal_args_to_list(args), frame);
+	size_t len_args = length(car(new_frame));
+	cell_p preprocess = NULL;
+	if(is_dotted_list(args)) {
+		preprocess = append(preprocess, cons(app3(str_to_atom("move末尾to通常の引数の場所"), str_to_atom("env"), int_to_atom(len_args)), NULL));
+	}
+	puts("======= preprocess 1=============");
+	print_list(preprocess);
+	puts("\n==============================");
+
+	if(define_begin != body) {
+		cell_p set_exp_list = make_set_exp_list(define_begin, body);
+		cell_p nil_list = app2(str_to_atom("'"), make_nil_list(car(set_exp_list), frame));
+		cell_p cdnr_exp = app3(str_to_atom("to左辺値"), str_to_atom("env"), int_to_atom(len_args));
+		cell_p alloc_exp = app3(str_to_atom("記憶域確保"), cdnr_exp, nil_list);
+		car(new_frame) = append(car(new_frame), car(set_exp_list)); // 局所変数を環境に登録する
+
+		preprocess = append(preprocess, cons(alloc_exp, NULL));
+		preprocess = append(preprocess, cdr(set_exp_list));
+	}
+	puts("======= preprocess 2=============");
+	print_list(preprocess);
+	puts("\n==============================");
+	preprocess = body_to_closure(preprocess, new_frame);
+	cell_p new_body = append(preprocess, body_to_closure(body, new_frame));
+	puts("======= new_body =============");
+	print_list(new_body);
+	puts("\n==============================");
+
+	return make_lambda(str_to_atom("env"), new_body);
+}
+
+cell_p atom_to_closure(cell_p atom, cell_p frame) {
+	assert(is(ATOM, atom));
+	cell_p env = str_to_atom("env");
+	size_t idx = 0;
+	for(; frame; frame = cdr(frame)) {
+		if(is_args(atom, car(frame))) {
+			idx = 1 + index_of_atom(atom, car(frame));
+			break;
+		}
+		env = app2(str_to_atom("上の環境へ"), env);
+	}
+	assert(frame);
+	return app3(str_to_atom("変数の取得"), env, int_to_atom(idx));
+}
+
+cell_p set_to_closure(cell_p root, cell_p frame) {
+	cell_p var = car_cdnr(root, 1);
+	cell_p exp = car_cdnr(root, 2);
+
+	cell_p env = str_to_atom("env");
+	size_t idx = 0;
+	for(; frame; frame = cdr(frame)) {
+		if(is_args(var, car(frame))) {
+			idx = 1 + index_of_atom(var, car(frame));
+			break;
+		}
+		env = app2(str_to_atom("上の環境へ"), env);
+	}
+	if(!frame) print_list(root), puts("\nset exp"), print_list(frame), puts("\n!frame");
+	assert(frame);
+	return app3(str_to_atom("変数への代入"), app3(str_to_atom("to左辺値"), env, int_to_atom(idx)), to_closure(exp, frame));
+}
+
+cell_p predefined_to_closure(cell_p root, cell_p frame) {
+	for(cell_p c = cdr(root); c; c = cdr(c)) {
+		car(c) = to_closure(car(c), frame);
+	}
+	return root;
+}
+
+cell_p to_closure(cell_p root, cell_p frame) {
 	if(!root) return NULL;
 	switch(cty(root)) {
 		case ATOM: {
+			if(!is_bound(root, frame)) return root;
+			return atom_to_closure(root, frame);
 		}
 		case NUMBER: {
+			return root;
 		}
 		case LIST: {
 			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
 				if(is_keyword[i](root)) {
+					switch(i) {
+						case K_q:
+						case K_quote: {
+							return root;
+						} case K_if: {
+							// (if cond t e)
+							cell_p cond = car_cdnr(root, 1);
+							cell_p then_cls = car_cdnr(root, 2);
+							cell_p else_cls = car_cdnr(root, 3);
+							cell_p new_cond = to_closure(cond, frame);
+							cell_p new_then_cls = to_closure(then_cls, frame);
+							cell_p new_else_cls = to_closure(else_cls, frame);
+							cell_p new_if = app4(str_to_atom("if"), new_cond, new_then_cls, new_else_cls);
+							return new_if;
+						} case K_lambda: {
+							// (lambda (args) bodies)
+							return app3(str_to_atom("cons"), lambda_to_closure(root, frame), str_to_atom("env"));
+						}
+						case K_define: {
+							// this case should not be appeared
+							assert(false);
+							return NULL;
+						}
+						case K_set: {
+							// (set! v e)
+							return set_to_closure(root, frame);
+						}
+					}
 				}
 			}
 			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
 				if(is_predefined[i](root)) {
+					return predefined_to_closure(root, frame);
 				}
 			}
+			for(cell_p c = root; c; c = cdr(c)) {
+				car(c) = to_closure(car(c), frame);
+			}
+			return cons(str_to_atom("クロージャ適用"), root);
 		} default: {
 			assert(false);
 		}
@@ -672,15 +904,17 @@ int main(int argc, char **argv) {
 	puts("\n--- print_cell ast ---");
 	print_list(ast);
 	puts("\n--- print_list ast ---");
-	//print_list(collect_free_vars(ast));
-	//puts("\n--- print_list collect_free_vars(ast) ---");
 	print_cell(eval(cons(ast, NULL), global_frame));
 	puts("\n--- eval ast ---");
-	cell_p copied_ast = make_lambda(NULL, rewrite_lambda_body(copy(body, -1)));
-	print_list(copied_ast);
-	puts("\n--- rewrite_lambda ---");
-	print_cell(eval(cons(copied_ast, NULL), global_frame));
-	puts("\n--- eval copied_body ---");
+	cell_p ast1 = rewrite_lambda_body(copy(body, -1));
+	print_list(ast1);
+	puts("\n--- rewrite_lambda ast1(only body) ---");
+	ast1 = to_closure(make_lambda(NULL, ast1), NULL);
+	ast1 = car_cdnr(ast1, 1);
+	print_list(ast1);
+	puts("\n--- to_closure ast1 ---");
+	print_cell(eval(app2(ast1, nil), global_frame));
+	puts("\n--- eval ast1 ---");
 	ast = rewrite_define(ast, NULL);
 	print_list(ast);
 	puts("\n--- rewrite_define ast ---");

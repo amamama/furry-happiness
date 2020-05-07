@@ -26,11 +26,14 @@ typedef enum {
 #define cdr(p) (((cell_p)(((uintptr_t)p) & ~0x7))->cdr)
 #define str_to_atom(str) (alloc_cell((cell_p)str, (cell_p)(uintptr_t)strlen(str), ATOM))
 #define int_to_atom(num) (alloc_cell((cell_p)(intptr_t)num, NULL, NUMBER))
+#define atom_to_int(atom) ((intptr_t)(car(atom)))
 
 
-bool is_same_string(char const *, cell_p);
-bool is_member(cell_p, cell_p);
-cell_p union_list(cell_p, cell_p);
+
+cell_p make_set_exp_list(cell_p, cell_p);
+cell_p make_nil_list(cell_p, cell_p);
+cell_p formal_args_to_list(cell_p);
+cell_p destruct_lambda(cell_p);
 
 #define make_lambda(args, bodies) (cons(str_to_atom("lambda"), cons(args, bodies)))
 #define app2(f, x) (cons(f, cons(x, NULL)))

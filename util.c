@@ -50,3 +50,8 @@ cell_p car_cdnr(cell_p r, unsigned int n) {
 	return car_cdnr(cdr(r), n - 1);
 }
 
+cell_p cdnr(cell_p r, unsigned int n) {
+	if(n == 0) return r;
+	return cdnr(cdr(r), n - 1);
+}
+

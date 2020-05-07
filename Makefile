@@ -13,3 +13,19 @@ cps.o: cps.c pl.h
 
 util.o: util.c util.h
 	gcc ${CFLAGS} -c util.c
+
+test: a.out
+	./a.out test1.lisp > test_output
+	./a.out test2.lisp >> test_output
+	./a.out test3.lisp >> test_output
+	./a.out test4.lisp >> test_output
+	./a.out args.lisp >> test_output
+	./a.out closure.lisp >> test_output
+	./a.out even.lisp >> test_output
+	./a.out fact.lisp >> test_output
+	./a.out fix.lisp >> test_output
+	./a.out forward_ref.lisp >> test_output
+	./a.out forward_ref2.lisp >> test_output
+	./a.out shadow.lisp >> test_output
+
+
