@@ -421,6 +421,7 @@ cell_p rewrite_lambda_list(cell_p root) {
 	return cons(cons(car(new_car), car(new_list)), cdr(new_car)?append(cdr(new_car), cdr(new_list)):cdr(new_list));
 }
 
+//return cons(変換後の式，defineのリスト)
 cell_p rewrite_lambda_aux(cell_p root) {
 	if(!root) return cons(root, NULL);
 	switch(cty(root)) {
@@ -465,18 +466,16 @@ cell_p rewrite_lambda_aux(cell_p root) {
 
 cell_p rewrite_lambda_body(cell_p bodies) {
 	if(!bodies) return NULL;
-	cell_p new_bodies = rewrite_lambda_body(cdr(bodies));
-	//puts("before ---");
-	//print_list(car(bodies));
-	//puts("\nafter ---");
-	cell_p new_body = rewrite_lambda_aux(car(bodies));
-	//print_list(car(new_body));
-	//puts("\nend ---");
-	cell_p ret = cdr(new_body)?append(cdr(new_body), cons(car(new_body), new_bodies)):cons(car(new_body), new_bodies);
-	//puts("========");
-	//print_list(ret);
-	//puts("\n========");
-	return ret;
+	cell_p define_begin = NULL;
+	cell_p ret = NULL;
+	for(; bodies; bodies = cdr(bodies)) {
+		cell_p new_body_and_define = rewrite_lambda_aux(car(bodies));
+		cell_p new_body = car(new_body_and_define);
+		cell_p define_list = cdr(new_body_and_define);
+		define_begin = append(define_begin, define_list);
+		ret = append(ret, cons(new_body, NULL)); //TODO: cons，reverseを使うやつに書き換え
+	}
+	return append(define_begin, ret);
 }
 
 // closure 変換をする
@@ -735,6 +734,11 @@ cell_p destruct_lambda(cell_p root) {
 	for(; body && (is_define(car(body))); body = cdr(body));
 	cell_p ret = cons(args, cons(define_begin, cons(body, NULL)));
 	for(; body && (!is_define(car(body))); body = cdr(body));
+	if(body) {
+		puts("=============");
+		print_list(root);
+		puts("\n=============");
+	}
 	assert(!body);
 	return ret;
 }
@@ -761,7 +765,7 @@ cell_p lambda_to_closure(cell_p lambda, cell_p frame) {
 	size_t len_args = length(car(new_frame));
 	cell_p preprocess = NULL;
 	if(is_dotted_list(args)) {
-		preprocess = append(preprocess, cons(app3(str_to_atom("move末尾to通常の引数の場所"), str_to_atom("env"), int_to_atom(len_args)), NULL));
+		preprocess = append(preprocess, cons(app3(str_to_atom("move末尾to通常の引数の場所"), str_to_atom("環境"), int_to_atom(len_args)), NULL));
 	}
 	//puts("======= preprocess 1=============");
 	//print_list(preprocess);
@@ -770,7 +774,7 @@ cell_p lambda_to_closure(cell_p lambda, cell_p frame) {
 	if(define_begin != body) {
 		cell_p set_exp_list = make_set_exp_list(define_begin, body);
 		cell_p nil_list = app2(str_to_atom("'"), make_nil_list(car(set_exp_list), frame));
-		cell_p cdnr_exp = app3(str_to_atom("to左辺値"), str_to_atom("env"), int_to_atom(len_args));
+		cell_p cdnr_exp = app3(str_to_atom("to左辺値"), str_to_atom("環境"), int_to_atom(len_args));
 		cell_p alloc_exp = app3(str_to_atom("記憶域確保"), cdnr_exp, nil_list);
 		car(new_frame) = append(car(new_frame), car(set_exp_list)); // 局所変数を環境に登録する
 
@@ -788,7 +792,7 @@ cell_p lambda_to_closure(cell_p lambda, cell_p frame) {
 	//print_list(new_body);
 	//puts("\n==============================");
 
-	cell_p ret = make_lambda(str_to_atom("env"), new_body);
+	cell_p ret = make_lambda(str_to_atom("環境"), new_body);
 	//puts("======= after =============");
 	//print_list(ret);
 	//puts("\n==========================");
@@ -797,7 +801,7 @@ cell_p lambda_to_closure(cell_p lambda, cell_p frame) {
 
 cell_p atom_to_closure(cell_p atom, cell_p frame) {
 	assert(is(ATOM, atom));
-	cell_p env = str_to_atom("env");
+	cell_p env = str_to_atom("環境");
 	size_t idx = 0;
 	for(; frame; frame = cdr(frame)) {
 		if(is_args(atom, car(frame))) {
@@ -814,7 +818,7 @@ cell_p set_to_closure(cell_p root, cell_p frame) {
 	cell_p var = car_cdnr(root, 1);
 	cell_p exp = car_cdnr(root, 2);
 
-	cell_p env = str_to_atom("env");
+	cell_p env = str_to_atom("環境");
 	size_t idx = 0;
 	for(cell_p f = frame; f; f = cdr(f)) {
 		if(is_args(var, car(f))) {
@@ -868,7 +872,7 @@ cell_p to_closure(cell_p root, cell_p frame) {
 							return new_if;
 						} case K_lambda: {
 							// (lambda (args) bodies)
-							return app3(str_to_atom("cons"), lambda_to_closure(root, frame), str_to_atom("env"));
+							return app3(str_to_atom("cons"), lambda_to_closure(root, frame), str_to_atom("環境"));
 						}
 						case K_define: {
 							// this case should not be appeared
@@ -877,7 +881,6 @@ cell_p to_closure(cell_p root, cell_p frame) {
 						}
 						case K_set: {
 							// (set! v e)
-							puts("set: thru");
 							return set_to_closure(root, frame);
 						}
 					}
@@ -911,7 +914,7 @@ int main(int argc, char **argv) {
 	cell_p global_frame = cons(make_new_env(app4(str_to_atom("a0"), str_to_atom("a1"), str_to_atom("a2"), str_to_atom("a3")), app4(int_to_atom(1), int_to_atom(10), int_to_atom(100), int_to_atom(1000)), NULL), NULL);
 
 	cell_p body = parse_body();
-	cell_p ast = print_cell(make_lambda(NULL, body));
+	cell_p ast = print_cell(make_lambda(NULL, copy(body, -1)));
 	puts("\n--- print_cell ast ---");
 	print_list(ast);
 	puts("\n--- print_list ast ---");

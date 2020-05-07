@@ -5,7 +5,8 @@ all: a.out
 a.out: pl.o cps.o util.o
 	gcc -g pl.o cps.o util.o
 
-pl.o: pl.c def.h pl.h cps.h
+
+pl.o: pl.c pl.h cps.h
 	gcc ${CFLAGS} -c pl.c
 
 cps.o: cps.c pl.h
@@ -13,6 +14,9 @@ cps.o: cps.c pl.h
 
 util.o: util.c util.h
 	gcc ${CFLAGS} -c util.c
+
+pl.h: def.h
+	touch pl.h
 
 test: a.out
 	./a.out test1.lisp > test_output
