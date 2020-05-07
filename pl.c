@@ -749,9 +749,9 @@ cell_p body_to_closure(cell_p bodies, cell_p frame) {
 }
 
 cell_p lambda_to_closure(cell_p lambda, cell_p frame) {
-	puts("======= before =============");
-	print_list(lambda);
-	puts("\n==========================");
+	//puts("======= before =============");
+	//print_list(lambda);
+	//puts("\n==========================");
 	cell_p destructed = destruct_lambda(lambda);
 	cell_p args = car_cdnr(destructed, 0);
 	cell_p define_begin = car_cdnr(destructed, 1);
@@ -763,9 +763,9 @@ cell_p lambda_to_closure(cell_p lambda, cell_p frame) {
 	if(is_dotted_list(args)) {
 		preprocess = append(preprocess, cons(app3(str_to_atom("move末尾to通常の引数の場所"), str_to_atom("env"), int_to_atom(len_args)), NULL));
 	}
-	puts("======= preprocess 1=============");
-	print_list(preprocess);
-	puts("\n==============================");
+	//puts("======= preprocess 1=============");
+	//print_list(preprocess);
+	//puts("\n==============================");
 
 	if(define_begin != body) {
 		cell_p set_exp_list = make_set_exp_list(define_begin, body);
@@ -777,16 +777,22 @@ cell_p lambda_to_closure(cell_p lambda, cell_p frame) {
 		preprocess = append(preprocess, cons(alloc_exp, NULL));
 		preprocess = append(preprocess, cdr(set_exp_list));
 	}
-	puts("======= preprocess 2=============");
-	print_list(preprocess);
-	puts("\n==============================");
+	//puts("======= preprocess 2=============");
+	//print_list(preprocess);
+	//puts("\nnew_frame:");
+	//print_list(new_frame);
+	//puts("\n==============================");
 	preprocess = body_to_closure(preprocess, new_frame);
 	cell_p new_body = append(preprocess, body_to_closure(body, new_frame));
-	puts("======= new_body =============");
-	print_list(new_body);
-	puts("\n==============================");
+	//puts("======= new_body =============");
+	//print_list(new_body);
+	//puts("\n==============================");
 
-	return make_lambda(str_to_atom("env"), new_body);
+	cell_p ret = make_lambda(str_to_atom("env"), new_body);
+	//puts("======= after =============");
+	//print_list(ret);
+	//puts("\n==========================");
+	return ret;
 }
 
 cell_p atom_to_closure(cell_p atom, cell_p frame) {
@@ -810,15 +816,14 @@ cell_p set_to_closure(cell_p root, cell_p frame) {
 
 	cell_p env = str_to_atom("env");
 	size_t idx = 0;
-	for(; frame; frame = cdr(frame)) {
-		if(is_args(var, car(frame))) {
-			idx = 1 + index_of_atom(var, car(frame));
+	for(cell_p f = frame; f; f = cdr(f)) {
+		if(is_args(var, car(f))) {
+			idx = 1 + index_of_atom(var, car(f));
 			break;
 		}
 		env = app2(str_to_atom("上の環境へ"), env);
 	}
-	if(!frame) print_list(root), puts("\nset exp"), print_list(frame), puts("\n!frame");
-	assert(frame);
+
 	return app3(str_to_atom("変数への代入"), app3(str_to_atom("to左辺値"), env, int_to_atom(idx)), to_closure(exp, frame));
 }
 
@@ -833,6 +838,11 @@ cell_p to_closure(cell_p root, cell_p frame) {
 	if(!root) return NULL;
 	switch(cty(root)) {
 		case ATOM: {
+			//puts("======= ATOM: to_closure=============");
+			//print_list(root);
+			//puts("\n");
+			//print_list(frame);
+			//printf("\n============= %d =================\n", is_bound(root, frame));
 			if(!is_bound(root, frame)) return root;
 			return atom_to_closure(root, frame);
 		}
@@ -867,6 +877,7 @@ cell_p to_closure(cell_p root, cell_p frame) {
 						}
 						case K_set: {
 							// (set! v e)
+							puts("set: thru");
 							return set_to_closure(root, frame);
 						}
 					}
@@ -904,7 +915,7 @@ int main(int argc, char **argv) {
 	puts("\n--- print_cell ast ---");
 	print_list(ast);
 	puts("\n--- print_list ast ---");
-	print_cell(eval(cons(ast, NULL), global_frame));
+	print_list(eval(cons(ast, NULL), global_frame));
 	puts("\n--- eval ast ---");
 	cell_p ast1 = rewrite_lambda_body(copy(body, -1));
 	print_list(ast1);
@@ -913,17 +924,17 @@ int main(int argc, char **argv) {
 	ast1 = car_cdnr(ast1, 1);
 	print_list(ast1);
 	puts("\n--- to_closure ast1 ---");
-	print_cell(eval(app2(ast1, nil), global_frame));
+	print_list(eval(app2(ast1, nil), global_frame));
 	puts("\n--- eval ast1 ---");
 	ast = rewrite_define(ast, NULL);
 	print_list(ast);
 	puts("\n--- rewrite_define ast ---");
-	print_cell(eval(cons(ast, NULL), global_frame));
+	print_list(eval(cons(ast, NULL), global_frame));
 	puts("\n--- eval rewrite_define(ast) ---");
 	cell_p ast2 = to_cps(ast, make_lambda(cons(str_to_atom("x"), NULL), cons(app2(str_to_atom("x"), make_lambda(cons(str_to_atom("x"), NULL), cons(str_to_atom("x"), NULL))), NULL)));
 	print_list(ast2);
 	puts("\n--- to_cps ast2 ---");
-	print_cell(eval(ast2, global_frame));
+	print_list(eval(ast2, global_frame));
 	puts("\n--- eval ast2 ---");
 }
 
