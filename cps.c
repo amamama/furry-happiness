@@ -40,7 +40,7 @@
 
 cell_p map_app2q(cell_p list) {
 	if(!list) return NULL;
-	return cons(app2(str_to_atom("'"), car(list)), map_app2q(cdr(list)));
+	return cons(!car(list)?app2(str_to_atom("'"), car(list)):car(list), map_app2q(cdr(list)));
 }
 
 cell_p rewrite_define_aux(cell_p root, cell_p frame) {
