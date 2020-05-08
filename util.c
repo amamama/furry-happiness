@@ -3,6 +3,7 @@
 #include <assert.h>
 
 #include "pl.h"
+#include "util.h"
 
 cell_p alloc_cell(cell_p car, cell_p cdr, cell_type t) {
 	cell_p ret = malloc(sizeof(cell));
@@ -46,8 +47,12 @@ cell_p append(cell_p a, cell_p b) {
 }
 
 cell_p car_cdnr(cell_p r, unsigned int n) {
-	if(n == 0) return car(r);
-	return car_cdnr(cdr(r), n - 1);
+	return car(cdnr(r, n));
+}
+
+cell_p canr(cell_p r, unsigned int n) {
+	if(n == 0) return r;
+	return canr(car(r), n - 1);
 }
 
 cell_p cdnr(cell_p r, unsigned int n) {
