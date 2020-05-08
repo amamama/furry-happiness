@@ -29,11 +29,9 @@ typedef enum {
 #define atom_to_int(atom) ((intptr_t)(car(atom)))
 
 
+bool is_same_atom(cell_p, cell_p);
+cell_p print_list(cell_p);
 
-cell_p make_set_exp_list(cell_p, cell_p);
-cell_p make_nil_list(cell_p, cell_p);
-cell_p formal_args_to_list(cell_p);
-cell_p destruct_lambda(cell_p);
 
 #define make_lambda(args, bodies) (cons(str_to_atom("lambda"), cons(args, bodies)))
 #define app2(f, x) (cons(f, cons(x, NULL)))

@@ -2,15 +2,15 @@ override CFLAGS := -Wall -g ${CFLAGS}
 
 all: a.out
 
-a.out: pl.o cps.o util.o
-	gcc -g pl.o cps.o util.o
+a.out: pl.o compiler.o util.o
+	gcc -g pl.o compiler.o util.o
 
 
-pl.o: pl.c pl.h cps.h
+pl.o: pl.c pl.h compiler.h
 	gcc ${CFLAGS} -c pl.c
 
-cps.o: cps.c pl.h
-	gcc ${CFLAGS} -c cps.c
+compiler.o: compiler.c pl.h
+	gcc ${CFLAGS} -c compiler.c
 
 util.o: util.c util.h
 	gcc ${CFLAGS} -c util.c
