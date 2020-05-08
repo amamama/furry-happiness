@@ -25,7 +25,7 @@
 #undef to_lit
 
 char source[65536] = "";
-char lexer_src[65536] = "";
+char *lexer_src = NULL;
 size_t lexer_index = 0;
 
 typedef struct {
@@ -39,7 +39,7 @@ typedef struct {
 		EOT,
 	} type;
 	struct {
-		size_t pos;
+		char* pos;
 		size_t len;
 	};
 	intptr_t num;
@@ -47,36 +47,35 @@ typedef struct {
 
 int init_lexer(char s[65536]) {
 	lexer_index = 0;
-	strncpy(lexer_src, s, sizeof(lexer_src));
-	lexer_src[sizeof(lexer_src) - 1] = 0;
+	lexer_src = s;
+	//err("%s\n", lexer_src);
 	return 0;
 }
 
 token tokenize(bool consume) {
 	size_t len = 0;
-	token ret = {EOT, {lexer_index, 0}};
+	token ret = {EOT, {NULL, 0}};
 	for(; isspace(lexer_src[lexer_index]); lexer_index++);
 	if(lexer_src[lexer_index] == '\0') return ret;
-	else if(lexer_src[lexer_index] == '(') ret = (token){RO_BRA, {lexer_index++, len = 1}};
-	else if(lexer_src[lexer_index] == ')') ret = (token){RO_KET, {lexer_index++, len = 1}};
-	else if(lexer_src[lexer_index] == '.') ret = (token){DOT, {lexer_index++, len = 1}};
-	else if(lexer_src[lexer_index] == '\'') ret = (token){QUOTE, {lexer_index++, len = 1}};
+	else if(lexer_src[lexer_index] == '(') ret = (token){RO_BRA, {lexer_src + lexer_index++, len = 1}};
+	else if(lexer_src[lexer_index] == ')') ret = (token){RO_KET, {lexer_src + lexer_index++, len = 1}};
+	else if(lexer_src[lexer_index] == '.') ret = (token){DOT, {lexer_src + lexer_index++, len = 1}};
+	else if(lexer_src[lexer_index] == '\'') ret = (token){QUOTE, {lexer_src + lexer_index++, len = 1}};
 	else if((lexer_src[lexer_index] == '-' && isdigit(lexer_src[lexer_index + 1])) || isdigit(lexer_src[lexer_index])) {
-		token tok = {NUM, {lexer_index, 0}, 0};
-		//intptr_t num = 0;
+		token tok = {NUM, {lexer_src + lexer_index, 0}, 0};
 		bool negative = lexer_src[lexer_index] == '-';
-		//size_t old_idx = lexer_index;
 
 		for(lexer_index += negative; isdigit(lexer_src[lexer_index]); tok.num = tok.num * 10 + lexer_src[lexer_index++] - 0x30) tok.len++;
-		//len = lexer_index - old_idx;
-		tok.num *= negative?-1:1;
 
-		//lexer_index = consume?lexer_index:old_idx;
+		if(negative) {
+			tok.num *= negative?-1:1;
+			tok.len++;
+			printf("negative %ld\n", tok.num);
+		}
 		len = tok.len;
 		ret = tok;
 	} else {
-		token tok = {ID, {lexer_index, 0}};
-		//old_idx = lexer_index;
+		token tok = {ID, {lexer_src + lexer_index, 0}};
 
 		for(; isgraph(lexer_src[lexer_index]); lexer_index++, tok.len++) {
 			if(lexer_src[lexer_index] == '(') break;
@@ -84,7 +83,6 @@ token tokenize(bool consume) {
 			if(lexer_src[lexer_index] == '.') break;
 		}
 
-		//lexer_index = consume?lexer_index:old_idx;
 		len = tok.len;
 		ret = tok;
 	}
@@ -94,7 +92,6 @@ token tokenize(bool consume) {
 
 // lisp := "'"? lisp | "(" lisp* ("." lisp)? ")" | atom
 
-cell_p parse(void);
 cell_p parse_list(void) {
 	cell_p ret = NULL;
 	token tok = tokenize(false);
@@ -117,7 +114,7 @@ cell_p parse(void) {
 			return root;
 		} case QUOTE: {
 			tokenize(true);
-			cell_p root = cons(alloc_cell((cell_p)(source + tok.pos), (cell_p)(uintptr_t)tok.len, ATOM), NULL);
+			cell_p root = cons(alloc_cell((cell_p)(tok.pos), (cell_p)(uintptr_t)tok.len, ATOM), NULL);
 			cdr(root) = alloc_cell(parse(), NULL, LIST);
 			return root;
 		} case NUM: {
@@ -125,9 +122,9 @@ cell_p parse(void) {
 			return alloc_cell((cell_p)(intptr_t)tok.num, NULL, NUMBER);
 		} case ID: {
 			tok = tokenize(true);
-			return alloc_cell((cell_p)(source + tok.pos), (cell_p)(uintptr_t)tok.len, ATOM);
+			return alloc_cell((cell_p)(tok.pos), (cell_p)(uintptr_t)tok.len, ATOM);
 		} default: {
-				err("parse failed: pos: %zd, %*s", tok.pos, (int)tok.len, source + tok.pos);
+				err("parse failed: %*s", (int)tok.len, tok.pos);
 				assert(false);
 		}
 	}
@@ -490,7 +487,8 @@ int main(int argc, char **argv) {
 	puts("\n--- rewrite_define ast ---");
 	print_list(eval(cons(ast, NULL), global_frame));
 	puts("\n--- eval rewrite_define(ast) ---");
-	cell_p ast2 = to_cps(ast, make_lambda(cons(str_to_atom("x"), NULL), cons(app2(str_to_atom("x"), make_lambda(cons(str_to_atom("x"), NULL), cons(str_to_atom("x"), NULL))), NULL)));
+	cell_p k = read("(lambda (k) (k (lambda (x) x)))");
+	cell_p ast2 = to_cps(ast, k);
 	print_list(ast2);
 	puts("\n--- to_cps ast2 ---");
 	print_list(eval(ast2, global_frame));

@@ -29,6 +29,10 @@ typedef enum {
 #define int_to_atom(num) (alloc_cell((cell_p)(intptr_t)num, NULL, NUMBER))
 #define atom_to_int(atom) ((intptr_t)(car(atom)))
 
+int init_lexer(char*);
+cell_p parse(void);
+
+#define read(s) (init_lexer(s), parse())
 
 bool is_same_atom(cell_p, cell_p);
 cell_p print_list(cell_p);
