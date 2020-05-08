@@ -10,7 +10,7 @@
 
 #include "pl.h"
 #include "util.h"
-#include "cps.h"
+#include "compiler.h"
 
 #define keyword(s, t, n, exp) to_lit(s)
 #define predefined(s, t, n, exp) to_lit(s)
@@ -297,14 +297,13 @@ cell_p make_new_frame(cell_p func, cell_p evaled_args, cell_p frame) {
 	return cons(env, lambda_frame);
 }
 
-cell_p apply(cell_p func, cell_p frame) {
+cell_p eval_body(cell_p func, cell_p frame) {
 	assert(is(FUNC, func));
 	cell_p body = cdr(cdr(car(func)));
-	cell_p ret = NULL;
-	for(; body; body = cdr(body)) {
-		ret = eval(car(body), frame);
+	for(; cdr(body); body = cdr(body)) {
+		eval(car(body), frame);
 	}
-	return ret;
+	return eval(car(body), frame);
 }
 
 cell_p move_arg(cell_p env, size_t depth) {
@@ -387,7 +386,9 @@ cell_p eval(cell_p root, cell_p frame) {
 				if(is_same_string(predefined[i], evaled_car)) return predefined_funcs[i](root, frame);
 			}
 			assert(is(FUNC, evaled_car));
-			return apply(evaled_car, cons(NULL, make_new_frame(evaled_car, eval_args(cdr(root), frame), frame)));
+			cell_p evaled_args = eval_args(cdr(root), frame);
+			cell_p new_frame = make_new_frame(evaled_car, evaled_args, frame);
+			return eval_body(evaled_car, cons(NULL, new_frame));
 		} default: {
 			assert(false);
 		}
@@ -718,7 +719,7 @@ cell_p make_set_exp_list(cell_p begin, cell_p end) {
 cell_p make_nil_list(cell_p set_exp_list, cell_p frame) {
 	if(!set_exp_list) return NULL;
 	cell_p var = car(set_exp_list);
-	return cons(is_bound(var, frame)?var:NULL, make_nil_list(cdr(set_exp_list), frame));
+	return cons(is_bound(var, frame)?var:nil, make_nil_list(cdr(set_exp_list), frame));
 }
 cell_p formal_args_to_list(cell_p args) {
 	if(!args) return NULL;
@@ -743,6 +744,60 @@ cell_p destruct_lambda(cell_p root) {
 	return ret;
 }
 
+cell_p rewrite_define(cell_p, cell_p);
+cell_p rewrite_define_aux(cell_p root, cell_p frame) {
+	assert(is_lambda(root));
+	cell_p destructed = destruct_lambda(root);
+	cell_p args = car_cdnr(destructed, 0);
+	cell_p new_frame = cons(args, frame);
+	cell_p define_begin = car_cdnr(destructed, 1);
+	cell_p define_end = car_cdnr(destructed, 2);
+	if(define_begin == define_end) {
+		for(cell_p body = define_end; body; body = cdr(body)) {
+			car(body) = rewrite_define(car(body), new_frame);
+		}
+		return root;
+	}
+	
+	cell_p set_exp_list = make_set_exp_list(define_begin, define_end);
+	cell_p new_lambda = make_lambda(car(set_exp_list), append(cdr(set_exp_list), define_end));
+	new_lambda = rewrite_define_aux(new_lambda, frame);
+	cell_p nil_list = make_nil_list(car(set_exp_list), new_frame);
+	car(define_begin) = cons(new_lambda, nil_list);
+	cdr(define_begin) = NULL;
+	return root;
+}
+
+cell_p rewrite_define(cell_p root, cell_p frame) {
+	if(!root) return root;
+	switch(cty(root)) {
+		case ATOM:
+		case NUMBER:
+		return root;
+		case LIST: {
+			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
+				if(is_keyword[i](root)) {
+					switch(i) {
+						case K_lambda: {
+							return rewrite_define_aux(root, frame);
+						}
+						case K_define: {
+							// this case should not be executed
+							assert(false);
+							return NULL;
+						}
+					}
+				}
+			}
+			for(cell_p c = root; c; c = cdr(c)) {
+				car(c) = rewrite_define(car(c), frame);
+			}
+			return root;
+		} default: {
+			assert(false);
+		}
+	}
+}
 // TODO: 関数の場所を考える．公開，非公開やファイルなど．
 
 cell_p to_closure(cell_p, cell_p);
@@ -760,33 +815,19 @@ cell_p lambda_to_closure(cell_p lambda, cell_p frame) {
 	cell_p args = car_cdnr(destructed, 0);
 	cell_p define_begin = car_cdnr(destructed, 1);
 	cell_p body = car_cdnr(destructed, 2);
+	assert(define_begin == body);
 	
 	cell_p new_frame = cons(formal_args_to_list(args), frame);
 	size_t len_args = length(car(new_frame));
 	cell_p preprocess = NULL;
 	if(is_dotted_list(args)) {
 		preprocess = append(preprocess, cons(app3(str_to_atom("move末尾to通常の引数の場所"), str_to_atom("環境"), int_to_atom(len_args)), NULL));
+		preprocess = body_to_closure(preprocess, new_frame);
 	}
 	//puts("======= preprocess 1=============");
 	//print_list(preprocess);
 	//puts("\n==============================");
 
-	if(define_begin != body) {
-		cell_p set_exp_list = make_set_exp_list(define_begin, body);
-		cell_p nil_list = app2(str_to_atom("'"), make_nil_list(car(set_exp_list), frame));
-		cell_p cdnr_exp = app3(str_to_atom("to左辺値"), str_to_atom("環境"), int_to_atom(len_args));
-		cell_p alloc_exp = app3(str_to_atom("記憶域確保"), cdnr_exp, nil_list);
-		car(new_frame) = append(car(new_frame), car(set_exp_list)); // 局所変数を環境に登録する
-
-		preprocess = append(preprocess, cons(alloc_exp, NULL));
-		preprocess = append(preprocess, cdr(set_exp_list));
-	}
-	//puts("======= preprocess 2=============");
-	//print_list(preprocess);
-	//puts("\nnew_frame:");
-	//print_list(new_frame);
-	//puts("\n==============================");
-	preprocess = body_to_closure(preprocess, new_frame);
 	cell_p new_body = append(preprocess, body_to_closure(body, new_frame));
 	//puts("======= new_body =============");
 	//print_list(new_body);
@@ -803,15 +844,16 @@ cell_p atom_to_closure(cell_p atom, cell_p frame) {
 	assert(is(ATOM, atom));
 	cell_p env = str_to_atom("環境");
 	size_t idx = 0;
+	size_t depth = 0;
 	for(; frame; frame = cdr(frame)) {
 		if(is_args(atom, car(frame))) {
 			idx = 1 + index_of_atom(atom, car(frame));
 			break;
 		}
-		env = app2(str_to_atom("上の環境へ"), env);
+		depth++;
 	}
 	assert(frame);
-	return app3(str_to_atom("変数の取得"), env, int_to_atom(idx));
+	return app3(str_to_atom("変数の取得"), app3(str_to_atom("上の環境へ"), env, int_to_atom(depth)), int_to_atom(idx));
 }
 
 cell_p set_to_closure(cell_p root, cell_p frame) {
@@ -820,15 +862,16 @@ cell_p set_to_closure(cell_p root, cell_p frame) {
 
 	cell_p env = str_to_atom("環境");
 	size_t idx = 0;
+	size_t depth = 0;
 	for(cell_p f = frame; f; f = cdr(f)) {
 		if(is_args(var, car(f))) {
 			idx = 1 + index_of_atom(var, car(f));
 			break;
 		}
-		env = app2(str_to_atom("上の環境へ"), env);
+		depth++;
 	}
 
-	return app3(str_to_atom("変数への代入"), app3(str_to_atom("to左辺値"), env, int_to_atom(idx)), to_closure(exp, frame));
+	return app3(str_to_atom("変数への代入"), app3(str_to_atom("to左辺値"), app3(str_to_atom("上の環境へ"), env, int_to_atom(depth)), int_to_atom(idx)), to_closure(exp, frame));
 }
 
 cell_p predefined_to_closure(cell_p root, cell_p frame) {
@@ -872,7 +915,7 @@ cell_p to_closure(cell_p root, cell_p frame) {
 							return new_if;
 						} case K_lambda: {
 							// (lambda (args) bodies)
-							return app3(str_to_atom("cons"), lambda_to_closure(root, frame), str_to_atom("環境"));
+							return app3(str_to_atom("クロージャ作成"), lambda_to_closure(root, frame), str_to_atom("環境"));
 						}
 						case K_define: {
 							// this case should not be appeared
@@ -920,10 +963,14 @@ int main(int argc, char **argv) {
 	puts("\n--- print_list ast ---");
 	print_list(eval(cons(ast, NULL), global_frame));
 	puts("\n--- eval ast ---");
-	cell_p ast1 = rewrite_lambda_body(copy(body, -1));
+	//cell_p ast1 = rewrite_lambda_body(copy(body, -1));
+	//print_list(ast1);
+	//puts("\n--- rewrite_lambda ast1(only body) ---");
+	cell_p ast1 = copy(body, -1);
+	ast1 = rewrite_define(make_lambda(NULL, ast1), NULL);
 	print_list(ast1);
-	puts("\n--- rewrite_lambda ast1(only body) ---");
-	ast1 = to_closure(make_lambda(NULL, ast1), NULL);
+	puts("\n--- rewrite_define ast1 ---");
+	ast1 = to_closure(ast1, NULL);
 	ast1 = car_cdnr(ast1, 1);
 	print_list(ast1);
 	puts("\n--- to_closure ast1 ---");
