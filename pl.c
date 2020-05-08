@@ -25,6 +25,8 @@
 #undef to_lit
 
 char source[65536] = "";
+char lexer_src[65536] = "";
+size_t lexer_index = 0;
 
 typedef struct {
 	enum {
@@ -43,40 +45,51 @@ typedef struct {
 	intptr_t num;
 } token;
 
+int init_lexer(char s[65536]) {
+	lexer_index = 0;
+	strncpy(lexer_src, s, sizeof(lexer_src));
+	lexer_src[sizeof(lexer_src) - 1] = 0;
+	return 0;
+}
+
 token tokenize(bool consume) {
-	static size_t idx = 0;
-	int old_idx = 0;
-	for(; isspace(source[idx]); idx++);
-	if(source[idx] == '\0') return (token){EOT, {idx, 0}};
-	if(source[idx] == '(') return (idx += consume, (token){RO_BRA, {idx - consume, 1}});
-	if(source[idx] == ')') return (idx += consume, (token){RO_KET, {idx - consume, 1}});
-	if(source[idx] == '.') return (idx += consume, (token){DOT, {idx - consume, 1}});
-	if(source[idx] == '\'') return (idx += consume, (token){QUOTE, {idx - consume, 1}});
-	if((source[idx] == '-' && isdigit(source[idx + 1])) || isdigit(source[idx])) {
-		intptr_t num = 0;
-		bool negative = source[idx] == '-';
-		old_idx = idx;
+	size_t len = 0;
+	token ret = {EOT, {lexer_index, 0}};
+	for(; isspace(lexer_src[lexer_index]); lexer_index++);
+	if(lexer_src[lexer_index] == '\0') return ret;
+	else if(lexer_src[lexer_index] == '(') ret = (token){RO_BRA, {lexer_index++, len = 1}};
+	else if(lexer_src[lexer_index] == ')') ret = (token){RO_KET, {lexer_index++, len = 1}};
+	else if(lexer_src[lexer_index] == '.') ret = (token){DOT, {lexer_index++, len = 1}};
+	else if(lexer_src[lexer_index] == '\'') ret = (token){QUOTE, {lexer_index++, len = 1}};
+	else if((lexer_src[lexer_index] == '-' && isdigit(lexer_src[lexer_index + 1])) || isdigit(lexer_src[lexer_index])) {
+		token tok = {NUM, {lexer_index, 0}, 0};
+		//intptr_t num = 0;
+		bool negative = lexer_src[lexer_index] == '-';
+		//size_t old_idx = lexer_index;
 
-		for(idx += negative; isdigit(source[idx]); num = num * 10 + source[idx++] - 0x30);
-		size_t len = idx - old_idx;
-		num *= negative?-1:1;
+		for(lexer_index += negative; isdigit(lexer_src[lexer_index]); tok.num = tok.num * 10 + lexer_src[lexer_index++] - 0x30) tok.len++;
+		//len = lexer_index - old_idx;
+		tok.num *= negative?-1:1;
 
-		idx = consume?idx:old_idx;
-		return (token){NUM, {old_idx, len}, num};
-	}
-	else {
-		token tok = {ID, {idx, 0}};
-		old_idx = idx;
+		//lexer_index = consume?lexer_index:old_idx;
+		len = tok.len;
+		ret = tok;
+	} else {
+		token tok = {ID, {lexer_index, 0}};
+		//old_idx = lexer_index;
 
-		for(; isgraph(source[idx]); idx++, tok.len++) {
-			if(source[idx] == '(') break;
-			if(source[idx] == ')') break;
-			if(source[idx] == '.') break;
+		for(; isgraph(lexer_src[lexer_index]); lexer_index++, tok.len++) {
+			if(lexer_src[lexer_index] == '(') break;
+			if(lexer_src[lexer_index] == ')') break;
+			if(lexer_src[lexer_index] == '.') break;
 		}
 
-		idx = consume?idx:old_idx;
-		return tok;
+		//lexer_index = consume?lexer_index:old_idx;
+		len = tok.len;
+		ret = tok;
 	}
+	if(!consume) lexer_index -= len;
+	return ret;
 }
 
 // lisp := "'"? lisp | "(" lisp* ("." lisp)? ")" | atom
@@ -448,6 +461,7 @@ int main(int argc, char **argv) {
 			break;
 		}
 	}
+	init_lexer(source);
 
 	cell_p global_frame = cons(make_new_env(app4(str_to_atom("a0"), str_to_atom("a1"), str_to_atom("a2"), str_to_atom("a3")), app4(int_to_atom(1), int_to_atom(10), int_to_atom(100), int_to_atom(1000))), NULL);
 
