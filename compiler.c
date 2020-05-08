@@ -6,7 +6,7 @@
 
 #include "pl.h"
 #include "util.h"
-#include "cps.h"
+#include "compiler.h"
 
 // cps変換のため，
 // (lambda (args) (define v_1 e_1) ... (define v_n e_n) post_bodies)
@@ -38,64 +38,6 @@
 */
 // frameを追加して↑のケースで落ちないようになった
 
-cell_p map_app2q(cell_p list) {
-	if(!list) return NULL;
-	return cons(!car(list)?app2(str_to_atom("'"), car(list)):car(list), map_app2q(cdr(list)));
-}
-
-cell_p rewrite_define_aux(cell_p root, cell_p frame) {
-	assert(is_lambda(root));
-	cell_p destructed = destruct_lambda(root);
-	cell_p args = car_cdnr(destructed, 0);
-	cell_p new_frame = cons(args, frame);
-	cell_p define_begin = car_cdnr(destructed, 1);
-	cell_p define_end = car_cdnr(destructed, 2);
-	if(define_begin == define_end) {
-		for(cell_p body = define_end; body; body = cdr(body)) {
-			car(body) = rewrite_define(car(body), new_frame);
-		}
-		return root;
-	}
-	
-	cell_p set_exp_list = make_set_exp_list(define_begin, define_end);
-	cell_p new_lambda = make_lambda(car(set_exp_list), append(cdr(set_exp_list), define_end));
-	new_lambda = rewrite_define_aux(new_lambda, frame);
-	cell_p nil_list = make_nil_list(car(set_exp_list), new_frame);
-	car(define_begin) = cons(new_lambda, map_app2q(nil_list));
-	cdr(define_begin) = NULL;
-	return root;
-}
-
-cell_p rewrite_define(cell_p root, cell_p frame) {
-	if(!root) return root;
-	switch(cty(root)) {
-		case ATOM:
-		case NUMBER:
-		return root;
-		case LIST: {
-			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
-				if(is_keyword[i](root)) {
-					switch(i) {
-						case K_lambda: {
-							return rewrite_define_aux(root, frame);
-						}
-						case K_define: {
-							// this case should not be executed
-							assert(false);
-							return NULL;
-						}
-					}
-				}
-			}
-			for(cell_p c = root; c; c = cdr(c)) {
-				car(c) = rewrite_define(car(c), frame);
-			}
-			return root;
-		} default: {
-			assert(false);
-		}
-	}
-}
 
 genvar(cps, "継続")
 
