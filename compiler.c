@@ -565,7 +565,8 @@ cell_p to_closure(cell_p root, cell_p frame) {
 			for(cell_p c = root; c; c = cdr(c)) {
 				car(c) = to_closure(car(c), frame);
 			}
-			return cons(str_to_atom("クロージャ適用"), root);
+			//return cons(str_to_atom("クロージャ適用"), root);
+			return root;
 		} default: {
 			assert(false);
 		}

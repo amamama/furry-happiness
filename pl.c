@@ -24,7 +24,6 @@
 #undef end
 #undef to_lit
 
-char source[65536] = "";
 char *lexer_src = NULL;
 size_t lexer_index = 0;
 
@@ -411,6 +410,13 @@ cell_p eval(cell_p root, cell_p frame) {
 			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
 				if(is_same_string(predefined[i], evaled_car)) return predefined_funcs[i](root, frame);
 			}
+			if(!is(FUNC, evaled_car) && !is(CLO, evaled_car)) {
+				puts("=========");
+				print_list(root);
+				puts("\n======== evaled_car:");
+				print_list(root);
+				puts("\n------");
+			}
 			assert(is(FUNC, evaled_car) || is(CLO, evaled_car));
 			if(is(FUNC, evaled_car))
 				return apply(evaled_car, cdr(root), frame);
@@ -451,6 +457,7 @@ cell_p union_list(cell_p a, cell_p b) {
 
 int main(int argc, char **argv) {
 	FILE *fp = argv[1][0] == '-'?stdin:fopen(argv[1], "r");
+	char source[65536] = "";
 	for(size_t i = 0; i < sizeof(source); i++) {
 		source[i] = fgetc(fp);
 		if(source[i] == EOF) {
@@ -460,38 +467,46 @@ int main(int argc, char **argv) {
 	}
 	init_lexer(source);
 
-	cell_p global_frame = cons(make_new_env(app4(str_to_atom("a0"), str_to_atom("a1"), str_to_atom("a2"), str_to_atom("a3")), app4(int_to_atom(1), int_to_atom(10), int_to_atom(100), int_to_atom(1000))), NULL);
-
 	cell_p body = parse_body();
-	cell_p ast = print_cell(make_lambda(NULL, copy(body, -1)));
+	cell_p global_var = read("(global hennsuu no ichiran)");
+	cell_p global_val = read("('global 'hennsuu 'no 'nakami)");
+	cell_p ast = print_cell(make_lambda(global_var, copy(body, -1)));
 	puts("\n--- print_cell ast ---");
 	print_list(ast);
 	puts("\n--- print_list ast ---");
-	print_list(eval(cons(ast, NULL), global_frame));
+	print_list(eval(cons(ast, global_val), NULL));
 	puts("\n--- eval ast ---");
 	//cell_p ast1 = rewrite_lambda_body(copy(body, -1));
 	//print_list(ast1);
 	//puts("\n--- rewrite_lambda ast1(only body) ---");
 	cell_p ast1 = copy(body, -1);
-	ast1 = rewrite_define(make_lambda(NULL, ast1), NULL);
+	ast1 = rewrite_define(make_lambda(global_var, ast1), NULL);
 	print_list(ast1);
 	puts("\n--- rewrite_define ast1 ---");
 	ast1 = to_closure(ast1, NULL);
-	ast1 = car_cdnr(ast1, 1);
+	//ast1 = car_cdnr(ast1, 1);
 	print_list(ast1);
 	puts("\n--- to_closure ast1 ---");
-	print_list(eval(app2(ast1, nil), global_frame));
+	cell_p body1 = cons(cons(ast1, global_val), NULL);//cdr(cdr(car_cdnr(ast1, 1)));
+	body1 = rewrite_lambda_body(body1);
+	print_list(body1);
+	puts("\n--- rewrite_lambda_body body1 ---");
+	ast1 = make_lambda(NULL, body1);
+	print_list(ast1);
+	puts("\n--- print_list ast1 ---");
+	cell_p global = cons(cons(cons(str_to_atom("環境"), NULL), NULL), NULL);
+	print_list(eval(cons(ast1, NULL), global));
 	puts("\n--- eval ast1 ---");
 	ast = rewrite_define(ast, NULL);
 	print_list(ast);
 	puts("\n--- rewrite_define ast ---");
-	print_list(eval(cons(ast, NULL), global_frame));
+	print_list(eval(cons(ast, global_val), NULL));
 	puts("\n--- eval rewrite_define(ast) ---");
-	cell_p k = read("(lambda (k) (k (lambda (x) x)))");
+	cell_p k = make_lambda(read("(k)"), cons(cons(str_to_atom("k"), cons(read("(lambda (x) x)"), global_val)), NULL));
 	cell_p ast2 = to_cps(ast, k);
 	print_list(ast2);
 	puts("\n--- to_cps ast2 ---");
-	print_list(eval(ast2, global_frame));
+	print_list(eval(ast2, NULL));
 	puts("\n--- eval ast2 ---");
 }
 
