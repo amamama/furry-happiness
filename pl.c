@@ -213,9 +213,8 @@ cell_p print_list(cell_p root) {
 		} case NUMBER: {
 			printf("%ld", (intptr_t)car(root));
 			break;
-		} case FUNC: {
-			return err("FUNC ha denai hazu"), NULL;
 		} default: {
+			err("ATOM, NUMBER, LIST igai ha denai hazu");
 			assert(false);
 		}
 	}
@@ -272,7 +271,7 @@ cell_p eval_args(cell_p args, cell_p frame) {
 	return cons(eval(car(args), frame), eval_args(cdr(args), frame));
 }
 
-cell_p make_new_env(cell_p arg_decl, cell_p evaled_args, cell_p frame) {
+cell_p make_new_env(cell_p arg_decl, cell_p evaled_args) {
 	cell_p env = NULL;
 	if(!is_dotted_list(arg_decl) && length(arg_decl) != length(evaled_args)) {
 		puts("=========");
@@ -293,13 +292,12 @@ cell_p make_new_env(cell_p arg_decl, cell_p evaled_args, cell_p frame) {
 cell_p make_new_frame(cell_p func, cell_p evaled_args, cell_p frame) {
 	cell_p lambda = car(func);
 	cell_p lambda_frame = cdr(func);
-	cell_p env = make_new_env(car_cdnr(lambda, 1), evaled_args, frame);
+	cell_p env = make_new_env(car_cdnr(lambda, 1), evaled_args);
 	return cons(env, lambda_frame);
 }
 
-cell_p eval_body(cell_p func, cell_p frame) {
-	assert(is(FUNC, func));
-	cell_p body = cdr(cdr(car(func)));
+cell_p eval_body(cell_p lambda, cell_p frame) {
+	cell_p body = cdr(cdr(lambda));
 	for(; cdr(body); body = cdr(body)) {
 		eval(car(body), frame);
 	}
@@ -307,7 +305,7 @@ cell_p eval_body(cell_p func, cell_p frame) {
 }
 
 
-// for compiler.c 
+// for compiler.c
 cell_p move_arg(cell_p env, size_t depth) {
 	if(depth == 1) {
 		cdr(env) = cons(cdr(env), NULL);
@@ -317,18 +315,20 @@ cell_p move_arg(cell_p env, size_t depth) {
 }
 
 cell_p apply(cell_p func, cell_p args, cell_p frame) {
+	assert(is(FUNC, func));
 	cell_p evaled_args = eval_args(args, frame);
 	cell_p new_frame = make_new_frame(func, evaled_args, frame);
-	return eval_body(func, cons(NULL, new_frame));
+	return eval_body(car(func), cons(NULL, new_frame));
 }
 
-/*
 cell_p apply_closure(cell_p closure, cell_p args, cell_p frame) {
+	assert(is(CLO, closure));
+	cell_p lambda = car(closure);
+	cell_p env = cdr(closure);
 	cell_p evaled_args = eval_args(args, frame);
-	cell_p new_frame = make_new_frame(func, evaled_args, frame);
-	return eval_body(func, cons(NULL, new_frame));
+	cell_p new_env = make_new_env(car_cdnr(lambda, 1), cons(env, evaled_args));
+	return eval_body(lambda, cons(new_env, NULL));
 }
-*/
 
 #define keyword(s, t, n, exp) def_func(t, n, exp)
 #define predefined(s, t, n, exp) def_func(t, n, exp)
@@ -401,8 +401,11 @@ cell_p eval(cell_p root, cell_p frame) {
 			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
 				if(is_same_string(predefined[i], evaled_car)) return predefined_funcs[i](root, frame);
 			}
-			assert(is(FUNC, evaled_car));
-			return apply(evaled_car, cdr(root), frame);
+			assert(is(FUNC, evaled_car) || is(CLO, evaled_car));
+			if(is(FUNC, evaled_car))
+				return apply(evaled_car, cdr(root), frame);
+			if(is(CLO, evaled_car))
+				return apply_closure(evaled_car, cdr(root), frame);
 		} default: {
 			assert(false);
 		}
@@ -446,7 +449,7 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	cell_p global_frame = cons(make_new_env(app4(str_to_atom("a0"), str_to_atom("a1"), str_to_atom("a2"), str_to_atom("a3")), app4(int_to_atom(1), int_to_atom(10), int_to_atom(100), int_to_atom(1000)), NULL), NULL);
+	cell_p global_frame = cons(make_new_env(app4(str_to_atom("a0"), str_to_atom("a1"), str_to_atom("a2"), str_to_atom("a3")), app4(int_to_atom(1), int_to_atom(10), int_to_atom(100), int_to_atom(1000))), NULL);
 
 	cell_p body = parse_body();
 	cell_p ast = print_cell(make_lambda(NULL, copy(body, -1)));

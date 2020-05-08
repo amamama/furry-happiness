@@ -38,8 +38,13 @@ keyword("set!", set, 0,
 	cdr(get_from_frame(arg(1), frame)) = e(arg(2))
 )
 // closure 変換をするために導入
+keyword("クロージャ作成", gen_closure, 2,
+	alloc_cell(car(a(1)), a(2), CLO)
+)
+
 keyword("クロージャ適用", apply_closure, 1,
-	eval_body(car(a(1)), cons(NULL, make_new_frame(car(a(1)), cons(cdr(a(1)), eval_args(cdr(cdr(root)), frame)), frame)))
+	//eval_body(car(a(1)), cons(NULL, make_new_frame(car(a(1)), cons(cdr(a(1)), eval_args(cdr(cdr(root)), frame)), frame)))
+	apply_closure(a(1), cdr(cdr(root)), frame)
 )
 keyword("apply-closure", apply_clo, 1,
 	eval_body(car(a(1)), cons(NULL, make_new_frame(car(a(1)), cons(cdr(a(1)), eval_args(cdr(cdr(root)), frame)), frame)))
@@ -73,7 +78,6 @@ predefined("記憶域確保", alloc_local, 2, cdr(a(1)) = a(2))
 predefined("上の環境へ", up_env, 2, canr(a(1), atom_to_int(a(2))))
 predefined("変数の取得", get_value, 2, car_cdnr(a(1), atom_to_int(a(2))))
 predefined("変数への代入", assign_value, 2, car(a(1)) = a(2))
-predefined("クロージャ作成", gen_closure, 2, cons(a(1), a(2)))
 
 predefined("canr", canr, 2, canr(a(1), atom_to_int(a(2))))
 predefined("cdnr", cdnr, 2, cdnr(a(1), atom_to_int(a(2))))

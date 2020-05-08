@@ -15,6 +15,7 @@ typedef enum {
 	ATOM,
 	NUMBER,
 	FUNC,
+	CLO,
 	BROKEN_HEART = 7,
 } cell_type;
 
