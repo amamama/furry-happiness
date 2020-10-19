@@ -46,6 +46,12 @@ cell_p append(cell_p a, cell_p b) {
 	return cons(car(a), append(cdr(a), b));
 }
 
+cell_p slice(cell_p list, cell_p begin, cell_p end) {
+	if(list == end) return NULL;
+	if(list == begin || begin == NULL) return cons(car(list), slice(cdr(list), NULL, end));
+	return slice(cdr(list), begin, end);
+}
+
 cell_p car_cdnr(cell_p r, unsigned int n) {
 	return car(cdnr(r, n));
 }

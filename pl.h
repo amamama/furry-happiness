@@ -34,6 +34,7 @@ cell_p parse(void);
 
 #define read(s) (init_lexer(s), parse())
 
+bool is_same_string(char const*, cell_p);
 bool is_same_atom(cell_p, cell_p);
 cell_p print_list(cell_p);
 

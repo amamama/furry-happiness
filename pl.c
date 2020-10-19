@@ -284,6 +284,8 @@ cell_p make_new_env(cell_p arg_decl, cell_p evaled_args) {
 	cell_p env = NULL;
 	if(!is_dotted_list(arg_decl) && length(arg_decl) != length(evaled_args)) {
 		puts("=========");
+		print_list(arg_decl);
+		puts("\n:::::::::");
 		print_list(evaled_args);
 		puts("\n=======");
 		err("hikisuu no kazu ga okasii\n");
@@ -336,7 +338,7 @@ cell_p apply_closure(cell_p closure, cell_p args, cell_p frame) {
 	cell_p env = cdr(closure);
 	cell_p evaled_args = eval_args(args, frame);
 	cell_p new_env = make_new_env(car_cdnr(lambda, 1), cons(env, evaled_args));
-	return eval_body(lambda, cons(new_env, NULL));
+	return eval_body(lambda, cons(new_env, cdr(frame)));
 }
 
 #define keyword(s, t, n, exp) def_func(t, n, exp)
@@ -455,6 +457,13 @@ cell_p union_list(cell_p a, cell_p b) {
 */
 
 
+int print_list_with_ln(cell_p l) {
+	if(!l) return 0;
+	print_list(car(l));
+	puts("");
+	return print_list_with_ln(cdr(l));
+}
+
 int main(int argc, char **argv) {
 	FILE *fp = argv[1][0] == '-'?stdin:fopen(argv[1], "r");
 	char source[65536] = "";
@@ -466,8 +475,63 @@ int main(int argc, char **argv) {
 		}
 	}
 	init_lexer(source);
-
-	cell_p body = parse_body();
+	cell_p body = parse_body(); // body
+	cell_p defs = read("((define hoge 'fuga) (define foo 'bar))");
+	cell_p ast = make_lambda(NULL, append(defs, body)); // (lambda () predefined body)
+	print_list(copy(ast, -1));
+	puts("\n--- print_list ast ---");
+	//print_list(eval(cons(ast, NULL), NULL));
+	//puts("\n--- eval ast ---");
+	cell_p ast1 = rewrite_define(ast, NULL);
+	// (lambda () ((lambda (predefined ...) (set! ) ... body) '() ...))
+	ast1 = car_cdnr(ast1, 2);
+	// ((lambda (predefined ...) (set! ) ... body) '() ...)
+	print_list(ast1);
+	puts("\n--- rewrite_define ast ---");
+	//print_list(eval(ast1, NULL));
+	//puts("\n--- eval ast ---");
+	cell_p ast2 = to_cps(ast1, read("(lambda (x) x))"));
+	// ((lambda (k) ...) (lambda (k) ...))
+	// ここでcall/ccの定義を突っ込む
+	ast2 = app2(make_lambda(cons(str_to_atom("call-with-current-continuation"), NULL), cons(ast2, NULL)), read("(lambda (k f) (f k (lambda (_ v) (k v))))"));
+	// ((lambda (call/cc) ( ↑)) (lambda (k f) (f k (lambda (_ v) (k v)))))
+	print_list(ast2);
+	puts("\n--- to_cps ast ---");
+	print_list(eval(ast2, NULL));
+	puts("\n--- eval ast ---");
+	cell_p ast3 = to_closure(ast2, NULL);
+	// ((cons (lambda (k) ...) env) (cons (lambda (k) ...) env))
+	print_list(ast3);
+	puts("\n--- to_closure ast ---");
+	cell_p global = cons(cons(cons(str_to_atom("環境"), str_to_atom("global_env")), NULL), NULL);
+	print_list(eval(ast3, global));
+	puts("\n--- eval ast ---");
+	cell_p body1 = cons(ast3, NULL);
+	//(body)
+	body1 = rewrite_lambda(body1);
+	//((define λ1 ...) (define ...) body)
+	print_list(body1);
+	puts("\n--- rewrite_lambda body1 ---");
+	cell_p ast4 = cons(make_lambda(NULL, body1), NULL);
+	print_list(eval(ast4, global));
+	puts("\n--- eval ast4 ---");
+	cell_p body2 = hoist_lambda(body1);
+	//((define λ1 ...) (define ...) body)
+	print_list_with_ln(body2);
+	puts("\n--- hoist_lambda body2 ---");
+	cell_p ast5 = make_lambda(NULL, body2);
+	//(lambda () (define ...) (define ...) body)
+	ast5 = rewrite_define(ast5, NULL);
+	//(lambda () ((lambda (λ1 ...) (set! ) ... body) ...))
+	ast5 = car_cdnr(ast5, 2);
+	//((lambda (λ1 ...) (set! ) ... body) ...)
+	print_list(ast5);
+	puts("\n--- rewrite_define ast5 ---");
+	//cell_p ast6 = cons(ast5, NULL);
+	//print_list(eval(ast6, global));
+	print_list(eval(ast5, global));
+	puts("\n--- eval ast5 ---");
+	/*
 	cell_p global_var = read("(global hennsuu no ichiran)");
 	cell_p global_val = read("('global 'hennsuu 'no 'nakami)");
 	cell_p ast = print_cell(make_lambda(global_var, copy(body, -1)));
@@ -476,9 +540,6 @@ int main(int argc, char **argv) {
 	puts("\n--- print_list ast ---");
 	print_list(eval(cons(ast, global_val), NULL));
 	puts("\n--- eval ast ---");
-	//cell_p ast1 = rewrite_lambda_body(copy(body, -1));
-	//print_list(ast1);
-	//puts("\n--- rewrite_lambda ast1(only body) ---");
 	cell_p ast1 = copy(body, -1);
 	ast1 = rewrite_define(make_lambda(global_var, ast1), NULL);
 	print_list(ast1);
@@ -487,10 +548,10 @@ int main(int argc, char **argv) {
 	//ast1 = car_cdnr(ast1, 1);
 	print_list(ast1);
 	puts("\n--- to_closure ast1 ---");
-	cell_p body1 = cons(cons(ast1, global_val), NULL);//cdr(cdr(car_cdnr(ast1, 1)));
-	body1 = rewrite_lambda_body(body1);
+	cell_p body1 = cons(cons(ast1, global_val), NULL);
+	body1 = rewrite_lambda(body1);
 	print_list(body1);
-	puts("\n--- rewrite_lambda_body body1 ---");
+	puts("\n--- rewrite_lambda body1 ---");
 	ast1 = make_lambda(NULL, body1);
 	print_list(ast1);
 	puts("\n--- print_list ast1 ---");
@@ -508,5 +569,6 @@ int main(int argc, char **argv) {
 	puts("\n--- to_cps ast2 ---");
 	print_list(eval(ast2, NULL));
 	puts("\n--- eval ast2 ---");
+	*/
 }
 
