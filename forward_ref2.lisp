@@ -1,0 +1,5 @@
+((lambda (id)
+	(define add5 (lambda (x) (_add (id 5) x)))
+	(define id (lambda (x) x))
+	(add5 10)
+	) (lambda (x) (_add x 3)))
