@@ -19,14 +19,14 @@ typedef enum {
 	BROKEN_HEART = 7,
 } cell_type;
 
-#define cty(p) ((cell_type)((uintptr_t)p) & 0x7)
-#define is(t, p) (cty(p) == t)
-#define to(t, p) ((cell_p)((((uintptr_t)p) & ~0x7) | t))
+#define cty(p) ((cell_type)((uintptr_t)(p)) & 0x7)
+#define is(t, p) (cty(p) == (t))
+#define to(t, p) ((cell_p)((((uintptr_t)(p)) & ~0x7) | t))
 #define cons(car, cdr) (alloc_cell(car, cdr, LIST))
-#define car(p) (((cell_p)(((uintptr_t)p) & ~0x7))->car)
-#define cdr(p) (((cell_p)(((uintptr_t)p) & ~0x7))->cdr)
-#define str_to_atom(str) (alloc_cell((cell_p)str, (cell_p)(uintptr_t)strlen(str), ATOM))
-#define int_to_atom(num) (alloc_cell((cell_p)(intptr_t)num, NULL, NUMBER))
+#define car(p) (((cell_p)(((uintptr_t)(p)) & ~0x7))->car)
+#define cdr(p) (((cell_p)(((uintptr_t)(p)) & ~0x7))->cdr)
+#define str_to_atom(str) (alloc_cell((cell_p)(str), (cell_p)(uintptr_t)strlen(str), ATOM))
+#define int_to_atom(num) (alloc_cell((cell_p)(intptr_t)(num), NULL, NUMBER))
 #define atom_to_int(atom) ((intptr_t)(car(atom)))
 
 int init_lexer(char*);
