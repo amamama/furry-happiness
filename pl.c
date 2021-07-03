@@ -69,7 +69,7 @@ token tokenize(bool consume) {
 		if(negative) {
 			tok.num *= negative?-1:1;
 			tok.len++;
-			printf("negative %ld\n", tok.num);
+			//printf("negative %ld\n", tok.num);
 		}
 		len = tok.len;
 		ret = tok;
@@ -123,7 +123,7 @@ cell_p parse(void) {
 			tok = tokenize(true);
 			return alloc_cell((cell_p)(tok.pos), (cell_p)(uintptr_t)tok.len, ATOM);
 		} default: {
-				err("parse failed: %*s", (int)tok.len, tok.pos);
+				err("parse failed: %*s\n", (int)tok.len, tok.pos);
 				assert(false);
 		}
 	}

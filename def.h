@@ -54,11 +54,13 @@ keyword("apply-closure", apply_clo, 1,
 end(keyword, KEYWORD)
 
 begin(predefined, PREDEFINED)
-//predefined("atom?", atom, 1, is(ATOM, a(1))?cons(NULL, NULL):NULL) //to be obsolete for typing
+predefined("atom?", atom_q, 1, is(ATOM, a(1))?cons(NULL, NULL):NULL) //to be obsolete for typing
 predefined("atom", atom, 1, is(ATOM, a(1))?cons(NULL, NULL):NULL) //to be obsolete for typing
-//predefined("number?", number, 1, is(NUMBER, a(1))?cons(NULL, NULL):NULL) //to be obsolete for typing
-//predefined("eq?", eq, 2, is_same_atom(a(1), a(2)) || a(1) == a(2)?cons(NULL, NULL):NULL)
+predefined("number?", number_q, 1, is(NUMBER, a(1))?cons(NULL, NULL):NULL) //to be obsolete for typing
+predefined("eq?", eq_q, 2, is_same_atom(a(1), a(2)) || a(1) == a(2)?cons(NULL, NULL):NULL)
 predefined("eq", eq, 2, is_same_atom(a(1), a(2)) || a(1) == a(2)?cons(NULL, NULL):NULL)
+predefined("gt?", gt_q, 2, atom_to_int(a(1)) >= atom_to_int(a(2))?cons(NULL, NULL):NULL)
+predefined("gt", gt, 2, atom_to_int(a(1)) >= atom_to_int(a(2))?cons(NULL, NULL):NULL)
 predefined("set-car!", set_car, 2, car(a(1)) = a(2))
 predefined("set-cdr!", set_cdr, 2, cdr(a(1)) = a(2))
 predefined("cons", cons, 2, cons(a(1), a(2))) // 'a -> list 'a -> list 'a
