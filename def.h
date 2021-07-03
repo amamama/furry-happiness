@@ -42,14 +42,15 @@ keyword("クロージャ作成", gen_closure, 2,
 	alloc_cell(car(a(1)), a(2), CLO)
 )
 
-keyword("クロージャ適用", apply_closure, 1,
+keyword("クロージャ適用", apply_closure, 0,
 	//eval_body(car(a(1)), cons(NULL, make_new_frame(car(a(1)), cons(cdr(a(1)), eval_args(cdr(cdr(root)), frame)), frame)))
-	apply_closure(a(1), cdr(cdr(root)), frame)
+	apply_closure(e(arg(1)), cdr(cdr(root)), frame)
 )
+/*
 keyword("apply-closure", apply_clo, 1,
 	eval_body(car(a(1)), cons(NULL, make_new_frame(car(a(1)), cons(cdr(a(1)), eval_args(cdr(cdr(root)), frame)), frame)))
 )
-
+*/
 end(keyword, KEYWORD)
 
 begin(predefined, PREDEFINED)

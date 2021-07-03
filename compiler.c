@@ -27,6 +27,7 @@
 	(define id (lambda (x) x))
 	(add5 10)
 	) (lambda (x) (_add x 3)))
+不動点コンビネータででいい感じにこれを解決できる
 */
 
 size_t index_of_atom(cell_p atom, cell_p list) {
@@ -141,11 +142,10 @@ cell_p rewrite_define(cell_p root, cell_p frame) {
 
 genvar(cps, "継続")
 
-#ifndef CPS2
-
 // CPS変換をする．
 // 長いので分ける
 // CPSは実質SSAみたいな所あるので，不必要なlambdaはset!に直すフェーズを導入したいね
+// いい感じにベータ簡約もしたいね
 // ((lambda (k v) ...) k1 exp) -> (set! k k1) (set! v exp) ...
 
 // (lambda (args) bodies)
@@ -259,105 +259,6 @@ cell_p to_cps(cell_p root, cell_p cont) {
 		}
 	}
 }
-
-#else
-
-cell_p body_to_cps2(cell_p bodies, cell_p cont_var) {
-	return app2(to_cps2(car(bodies)), cdr(bodies)?make_lambda(cons(str_to_atom("_"), NULL), cons(body_to_cps2(cdr(bodies), cont_var), NULL)):cont_var);
-}
-
-cell_p apply_to_cps_aux2(cell_p exp, cell_p cont_vars, cell_p cont) {
-	cell_p body = cdr(exp)?apply_to_cps_aux2(cdr(exp), cdr(cont_vars), cont):cont;
-	cell_p new_cont = make_lambda(cons(car(cont_vars), NULL), cons(body, NULL));
-	return app2(to_cps2(car(exp)), new_cont);
-}
-cell_p apply_to_cps2(cell_p root, cell_p cont) {
-	cell_p cont_vars = NULL;
-	for(cell_p e = root; e; e = cdr(e)) {
-		cont_vars = cons(genvar_cps(), cont_vars);
-	}
-	cell_p apply_cont = cons(car(cont_vars), cons(cont, cdr(cont_vars)));
-	return apply_to_cps_aux2(root, cont_vars, apply_cont);
-}
-
-cell_p predefined_to_cps2(cell_p root, cell_p cont) {
-	cell_p cont_vars = NULL;
-	for(cell_p e = cdr(root); e; e = cdr(e)) {
-		cont_vars = cons(genvar_cps(), cont_vars);
-	}
-	cell_p predefined_cont = cons(cont, cons(cons(car(root), cont_vars), NULL));
-	return apply_to_cps_aux2(cdr(root), cont_vars, predefined_cont);
-}
-
-cell_p to_cps2(cell_p root) {
-	switch(cty(root)) {
-		case ATOM:
-		case NUMBER: {
-			cell_p k = genvar_cps();
-			return make_lambda(cons(k, NULL), cons(app2(k, root), NULL));
-		} case LIST: {
-			for(size_t i = 0; i < NUM_OF_KEYWORD; i++) {
-				if(is_keyword[i](root)) {
-					switch(i) {
-						case K_q:
-						case K_quote: {
-							cell_p k = genvar_cps();
-							return make_lambda(cons(k, NULL), cons(app2(k, root), NULL));
-						} case K_if: {
-							cell_p cond = car_cdnr(root, 1);
-							cell_p then_cls = car_cdnr(root, 2);
-							cell_p else_cls = car_cdnr(root, 3);
-							cell_p new_var0 = genvar_cps();
-							cell_p new_var1 = genvar_cps();
-							cell_p new_then_cls = to_cps(then_cls, new_var0);
-							cell_p new_else_cls = to_cps(else_cls, new_var0);
-							cell_p new_if = app4(str_to_atom("if"), new_var1, new_then_cls, new_else_cls);
-							cell_p new_cont = make_lambda(cons(new_var1, NULL), cons(new_if, NULL));
-							cell_p new_lambda = make_lambda(cons(new_var0, NULL), cons(to_cps(cond, new_cont), NULL));
-							return new_lambda;
-						} case K_lambda: {
-							cell_p new_var = genvar_cps();
-							cell_p body = cdr(cdr(root));
-							cell_p new_args = cons(new_var, car_cdnr(root, 1));
-							cell_p new_body = body_to_cps2(body, new_var);
-							cell_p new_lambda = make_lambda(new_args, cons(new_body, NULL));
-							cell_p k = genvar_cps();
-							 return make_lambda(cons(k, NULL), cons(app2(k, new_lambda), NULL));
-						}
-						case K_define: {
-							// this case should not be appeared
-							assert(false);
-							return NULL;
-						}
-						case K_set: {
-							cell_p var = car_cdnr(root, 1);
-							cell_p exp = car_cdnr(root, 2);
-							cell_p new_var = genvar_cps();
-							cell_p k = genvar_cps();
-							cell_p body = cons(k, cons(cons(str_to_atom("set!"), cons(var, cons(new_var, NULL))), NULL));
-							cell_p new_cont = make_lambda(cons(new_var, NULL), cons(body, NULL));
-
-							cell_p new_lambda = make_lambda(cons(k, NULL), cons(app2(to_cps2(exp), new_cont), NULL));
-							 return new_lambda;
-						}
-					}
-				}
-			}
-			for(size_t i = 0; i < NUM_OF_PREDEFINED; i++) {
-				if(is_predefined[i](root)) {
-					cell_p k = genvar_cps();
-					return make_lambda(cons(k, NULL), cons(predefined_to_cps2(root, k), NULL));
-				}
-			}
-			cell_p k = genvar_cps();
-			return make_lambda(cons(k, NULL), cons(apply_to_cps2(root, k), NULL));
-		} default: {
-			assert(false);
-		}
-	}
-}
-
-#endif
 
 // closure 変換をする
 // (lambda env body)って書くと実引数リストがenvに束縛されることを利用する
@@ -776,10 +677,12 @@ cell_p exec_prim(cell_p exp, cell_p env) {
 			}
 		}
 	}
+	return NULL;
 }
 
 cell_p exec_aux(cell_p define_list, cell_p entry) {
 	cell_p exp = entry;
 	while(1) {
 	}
+	return NULL;
 }

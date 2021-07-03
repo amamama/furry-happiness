@@ -347,7 +347,7 @@ cell_p apply_closure(cell_p closure, cell_p args, cell_p frame) {
 #define end(k, K)
 #define def_func(t, n, exp) \
 	cell_p prim_##t(cell_p root, cell_p frame) { \
-		if(n != 0 && !(length(root) > n)) err("hikisuu ga tarinai\n"), print_list(root), puts(""); \
+		if(n != 0 && !(length(root) == n + 1)) err("hikisuu ga okasii\n"), print_list(root), puts(""); \
 		A(n); \
 		return exp; \
 	}
